@@ -1,0 +1,497 @@
+/*
+  style.qss -- Guardian's "Ascended Violet" theme
+
+  Auto-loaded by main.py on startup. Quick QSS notes since this is
+  CSS-like but not identical:
+    - Target by objectName with '#', e.g. #loginButton
+    - :hover, :pressed, :focus, :disabled all work as pseudo-states
+    - No box-shadow -- a true glow needs a QGraphicsDropShadowEffect
+      applied in Python. The hover states below fake it with a bright
+      border + lighter fill instead.
+    - Trust-rank colors, wallpaper, and font-color are untouched by this
+      file on purpose (see main.py/player_list_delegate.py) -- don't add
+      a blanket "color:" to QListWidget::item or you'll fight them.
+
+  Palette (kept here since QSS has no variables):
+    bg app        #14121f      bg panel     #1c1832      bg elevated  #241f42
+    border        #3a3364      border hi    #4a4280
+    accent        #9b5de5      accent hi    #b98af0      accent press #7c3aed
+    text          #ece7fb      text muted   #948dbd      text disabled #565077
+    success       #3ddc97      warning      #ffb703      danger       #ff5577
+    discord       #5865f2
+*/
+
+/* Quiets Qt's default dotted focus rectangle, then draws a real one back
+   in below -- a solid, theme-colored ring standing in for the old dotted
+   box, not "no focus indicator at all." A keyboard-only traveler through
+   this app deserves to know exactly where they're standing, same as
+   anyone moving by mouse. */
+* {
+    outline: none;
+}
+
+*:focus {
+    outline: 2px solid #b98af0;
+}
+
+QWidget {
+    background-color: #14121f;
+    color: #ece7fb;
+    font-size: 12px;
+    selection-background-color: #7c3aed;
+    selection-color: #ffffff;
+}
+
+QMainWindow, QDialog {
+    background-color: #14121f;
+}
+
+QToolTip {
+    background-color: #241f42;
+    color: #ece7fb;
+    border: 1px solid #4a4280;
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+/* ---- Labels ------------------------------------------------------- */
+
+QLabel {
+    background: transparent;
+    color: #ece7fb;
+}
+
+#loginTitle, #configTitle, #aboutTitle {
+    color: #c9a6f5;
+    font-size: 20px;
+    font-weight: bold;
+    padding: 4px 0 8px 0;
+}
+
+#appearanceSectionLabel, #watchlistSyncSectionLabel, #discordSectionLabel {
+    color: #c9a6f5;
+    font-weight: bold;
+    font-size: 13px;
+    border-bottom: 1px solid #3a3364;
+    padding-bottom: 4px;
+    margin-top: 6px;
+}
+
+#playerListLabel, #watchlistAddLabel, #discordAddLabel, #watchlistReviewLabel {
+    color: #948dbd;
+    font-weight: bold;
+}
+
+#appearanceHint, #watchlistSyncHint, #discordHint, #kickInfo,
+#twoFactorHint, #profileActionHint, #banPermanentNote {
+    color: #948dbd;
+    font-size: 11px;
+}
+
+#footerCopyrightLabel {
+    color: #948dbd;
+    font-size: 10px;
+}
+
+#updateBanner {
+    background-color: #241f42;
+    border: 1px solid #7c3aed;
+    border-radius: 6px;
+    padding: 5px 8px;
+    margin: 4px 6px;
+    font-size: 11px;
+    color: #ece7fb;
+}
+
+#updateBanner a {
+    color: #b98af0;
+}
+
+#loginStatus, #banStatus, #kickStatus, #inviteStatus, #noteStatus,
+#unbansStatus, #watchlistStatus, #importReviewStatus,
+#discordConfigStatus, #watchlistSyncStatus, #appearanceStatus,
+#profileStatus {
+    color: #b9a8e6;
+    font-style: italic;
+}
+
+#mainStatusLabel {
+    color: #c9a6f5;
+    font-weight: bold;
+}
+
+#actionBanner {
+    background-color: #2a2050;
+    color: #d8c3fb;
+    border: 1px solid #4a4280;
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+
+/* ---- Buttons -------------------------------------------------------
+   Base style is the neutral/primary look; specific object names below
+   recolor by what the action actually does (destructive, confirming,
+   a safe cancel, or Discord-branded).
+*/
+
+QPushButton, QToolButton {
+    background-color: #2a2452;
+    color: #ece7fb;
+    border: 1px solid #4a4280;
+    border-radius: 5px;
+    padding: 6px 14px;
+}
+
+QPushButton:hover, QToolButton:hover {
+    background-color: #352c66;
+    border: 1px solid #b98af0;
+    color: #ffffff;
+}
+
+QPushButton:pressed, QToolButton:pressed {
+    background-color: #1e1a3a;
+    border: 1px solid #7c3aed;
+}
+
+QPushButton:disabled, QToolButton:disabled {
+    background-color: #1c1832;
+    color: #565077;
+    border: 1px solid #2a2452;
+}
+
+/* Primary actions -- log in, save, confirm-but-not-destructive */
+#loginButton, #twoFactorButton, #noteSaveButton, #inviteConfirmButton,
+#applyAppearanceButton, #watchlistAddButton, #watchlistSyncSaveButton,
+#watchlistImportButton, #importSubmitButton, #discordAddButton,
+#aboutDonateButton {
+    background-color: #6d28d9;
+    border: 1px solid #9b5de5;
+    color: #ffffff;
+    font-weight: bold;
+}
+#loginButton:hover, #twoFactorButton:hover, #noteSaveButton:hover,
+#inviteConfirmButton:hover, #applyAppearanceButton:hover,
+#watchlistAddButton:hover, #watchlistSyncSaveButton:hover,
+#watchlistImportButton:hover, #importSubmitButton:hover,
+#discordAddButton:hover, #aboutDonateButton:hover {
+    background-color: #7c3aed;
+    border: 1px solid #d5b3fa;
+}
+
+/* Destructive -- bans, kicks, permanent removals */
+#banConfirmButton, #kickConfirmButton, #profileBanButton,
+#profileKickButton, #watchlistRemoveButton, #discordRemoveButton {
+    background-color: #7a1f38;
+    border: 1px solid #ff5577;
+    color: #ffe4ea;
+    font-weight: bold;
+}
+#banConfirmButton:hover, #kickConfirmButton:hover, #profileBanButton:hover,
+#profileKickButton:hover, #watchlistRemoveButton:hover,
+#discordRemoveButton:hover {
+    background-color: #99283f;
+    border: 1px solid #ff8fa3;
+    color: #ffffff;
+}
+
+/* Caution -- reviewer decisions that end something (reject/clear/wipe) */
+#watchlistRejectButton, #watchlistClearButton, #aarClearButton,
+#invitesRejectButton {
+    background-color: #6b4a12;
+    border: 1px solid #ffb703;
+    color: #ffe9b8;
+}
+#watchlistRejectButton:hover, #watchlistClearButton:hover,
+#aarClearButton:hover, #invitesRejectButton:hover {
+    background-color: #82590f;
+    border: 1px solid #ffd166;
+    color: #ffffff;
+}
+
+/* Positive -- approvals, restoring someone, confirming a healthy check */
+#watchlistApproveButton, #unbansUnbanButton, #invitesAcceptButton {
+    background-color: #1c6b4e;
+    border: 1px solid #3ddc97;
+    color: #d8fbea;
+    font-weight: bold;
+}
+#watchlistApproveButton:hover, #unbansUnbanButton:hover,
+#invitesAcceptButton:hover {
+    background-color: #21815f;
+    border: 1px solid #6ee6b3;
+    color: #ffffff;
+}
+
+/* Info -- "does this work?" checks, not a save/commit */
+#watchlistSyncTestButton, #discordTestButton, #importRecheckButton,
+#watchlistSyncNowButton, #aboutGroupButton, #invitesRefreshButton {
+    background-color: #1a3a5c;
+    border: 1px solid #4fa3e3;
+    color: #dceeff;
+}
+#watchlistSyncTestButton:hover, #discordTestButton:hover,
+#importRecheckButton:hover, #watchlistSyncNowButton:hover,
+#aboutGroupButton:hover, #invitesRefreshButton:hover {
+    background-color: #204a73;
+    border: 1px solid #7cc0f5;
+    color: #ffffff;
+}
+
+/* Discord-branded */
+#aarDiscordButton, #watchlistDiscordButton, #aboutDiscordButton {
+    background-color: #4752c4;
+    border: 1px solid #5865f2;
+    color: #ffffff;
+}
+#aarDiscordButton:hover, #watchlistDiscordButton:hover, #aboutDiscordButton:hover {
+    background-color: #5865f2;
+    border: 1px solid #8891ff;
+}
+
+/* Safe "back out" -- ghost style, low visual weight */
+#banCancelButton, #kickCancelButton, #inviteCancelButton,
+#noteCancelButton, #configCloseButton, #unbansCloseButton,
+#watchlistCloseButton, #importCloseButton, #aboutCloseButton,
+#invitesCloseButton {
+    background-color: transparent;
+    border: 1px solid #4a4280;
+    color: #b9a8e6;
+}
+#banCancelButton:hover, #kickCancelButton:hover, #inviteCancelButton:hover,
+#noteCancelButton:hover, #configCloseButton:hover,
+#unbansCloseButton:hover, #watchlistCloseButton:hover,
+#importCloseButton:hover, #aboutCloseButton:hover,
+#invitesCloseButton:hover {
+    background-color: #241f42;
+    border: 1px solid #948dbd;
+    color: #ece7fb;
+}
+
+#accountButton {
+    background-color: transparent;
+    border: none;
+    color: #ece7fb;
+    font-weight: bold;
+    padding: 4px 10px;
+}
+#accountButton:hover {
+    background-color: #2a2452;
+    border-radius: 4px;
+    color: #d5b3fa;
+}
+#accountButton::menu-indicator {
+    width: 0px;
+}
+
+/* ---- Inputs ---------------------------------------------------------- */
+
+QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QComboBox {
+    background-color: #1c1832;
+    color: #ece7fb;
+    border: 1px solid #3a3364;
+    border-radius: 4px;
+    padding: 4px 6px;
+    selection-background-color: #7c3aed;
+}
+
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
+QSpinBox:focus, QComboBox:focus {
+    border: 1px solid #b98af0;
+}
+
+QLineEdit:disabled, QTextEdit:disabled, QComboBox:disabled {
+    color: #565077;
+    background-color: #17142a;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 22px;
+    border-left: 1px solid #3a3364;
+    background-color: #241f42;
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+QComboBox::drop-down:hover {
+    background-color: #2a2452;
+}
+
+/* Styling any part of QComboBox switches Qt to fully custom rendering
+   for it, which drops the platform's native drop-down arrow glyph unless
+   we draw one ourselves. Tried both the classic zero-size + colored-border
+   CSS-triangle trick and an inline base64 data: URI first -- the former
+   rendered as a solid untriangular block under this style/Qt build, and
+   Qt's QSS url() doesn't accept data: URIs at all. A real asset file
+   (combo_arrow.png, shipped alongside ascended_logo.png) is what actually
+   works. %%ASSETS%% is filled in by main.py at startup with this folder's
+   absolute path -- see the app.setStyleSheet() call there for why. */
+QComboBox::down-arrow {
+    image: url(%%ASSETS%%/combo_arrow.png);
+    width: 12px;
+    height: 8px;
+    margin-right: 7px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #1c1832;
+    color: #ece7fb;
+    border: 1px solid #4a4280;
+    selection-background-color: #7c3aed;
+    selection-color: #ffffff;
+    outline: none;
+}
+
+QSpinBox::up-button, QSpinBox::down-button {
+    background-color: #2a2452;
+    border: none;
+    width: 14px;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background-color: #352c66;
+}
+
+QCheckBox {
+    color: #ece7fb;
+    spacing: 6px;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+    border: 1px solid #4a4280;
+    border-radius: 3px;
+    background-color: #1c1832;
+}
+QCheckBox::indicator:hover {
+    border: 1px solid #b98af0;
+}
+QCheckBox::indicator:checked {
+    background-color: #7c3aed;
+    border: 1px solid #b98af0;
+}
+QCheckBox::indicator:disabled {
+    background-color: #17142a;
+    border: 1px solid #2a2452;
+}
+
+/* ---- Lists / tables --------------------------------------------------
+   Background/selection only -- no per-item color/font here, since
+   player-list rows carry their own trust-rank/watchlist colors via
+   setForeground() and this must never override those.
+*/
+
+QListWidget, QTableWidget, QTreeWidget {
+    background-color: #191530;
+    alternate-background-color: #1c1832;
+    border: 1px solid #3a3364;
+    border-radius: 4px;
+}
+
+/* The player list's wallpaper is applied as a background-image directly
+   on player_list.viewport() by main.py's _apply_appearance() -- it has to
+   target the viewport itself, not #playerList, or the QWidget rule above
+   silently wins (see the comment in _apply_appearance() for why). Don't
+   add a background-color/-image rule for #playerList here expecting it
+   to reach the wallpaper -- it won't. */
+
+QListWidget::item, QTreeWidget::item {
+    padding: 3px 4px;
+    border: none;
+}
+
+QListWidget::item:selected, QTreeWidget::item:selected {
+    background-color: #3a2e6b;
+}
+
+QListWidget::item:hover, QTreeWidget::item:hover {
+    background-color: #241f42;
+}
+
+QTableWidget {
+    gridline-color: #3a3364;
+}
+QTableWidget::item:selected {
+    background-color: #3a2e6b;
+}
+QHeaderView::section {
+    background-color: #241f42;
+    color: #b9a8e6;
+    border: none;
+    border-bottom: 1px solid #3a3364;
+    padding: 4px 6px;
+}
+
+/* ---- Menus -------------------------------------------------------- */
+
+QMenuBar {
+    background-color: #1c1832;
+    color: #ece7fb;
+    border-bottom: 1px solid #3a3364;
+}
+QMenuBar::item {
+    background: transparent;
+    padding: 4px 10px;
+}
+QMenuBar::item:selected, QMenuBar::item:pressed {
+    background-color: #2a2452;
+    color: #d5b3fa;
+}
+
+QMenu {
+    background-color: #1c1832;
+    color: #ece7fb;
+    border: 1px solid #4a4280;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 5px 20px;
+    border-radius: 3px;
+}
+QMenu::item:selected {
+    background-color: #3a2e6b;
+    color: #ffffff;
+}
+QMenu::item:disabled {
+    color: #565077;
+}
+QMenu::separator {
+    height: 1px;
+    background: #3a3364;
+    margin: 4px 6px;
+}
+
+/* ---- Scrollbars ----------------------------------------------------- */
+
+QScrollBar:vertical {
+    background: #14121f;
+    width: 11px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #3a3364;
+    min-height: 24px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #4a4280;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+QScrollBar:horizontal {
+    background: #14121f;
+    height: 11px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: #3a3364;
+    min-width: 24px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #4a4280;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0;
+}

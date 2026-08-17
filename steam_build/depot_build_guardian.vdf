@@ -1,0 +1,19 @@
+"DepotBuild"
+{
+	// Fill in once Steamworks assigns a real Depot ID under Guardian's
+	// AppID (Steamworks usually offers AppID+1 as the default depot).
+	"DepotID"		"PLACEHOLDER_DEPOTID"
+	"contentroot"	"..\dist\Guardian\"
+
+	"FileMapping"
+	{
+		"LocalPath"		"*"
+		"DepotPath"		"."
+		"recursive"		"1"
+	}
+
+	// PyInstaller doesn't emit .pdb files, but excluding them is a
+	// harmless no-op safety net -- Valve's own sample scripts do the
+	// same, no reason not to.
+	"FileExclusion"		"*.pdb"
+}
