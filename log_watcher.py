@@ -82,13 +82,15 @@ class LogEvent:
     whichever other fields are relevant, and leave the rest as None.
 
     kind is one of: "instance_change", "player_join", "player_left",
-    "vote_kick_initiated", "vote_kick_succeeded"
+    "vote_kick_initiated", "vote_kick_succeeded", "avatar_change",
+    "udon_exception"
     """
     kind: str
     display_name: Optional[str] = None
     user_id: Optional[str] = None
     world_id: Optional[str] = None
     instance_id: Optional[str] = None
+    avatar_name: Optional[str] = None     # "avatar_change" only
     timestamp: Optional[datetime] = None  # when VRChat itself logged this line (local time)
 
 
@@ -130,6 +132,21 @@ RE_INSTANCE_JOIN = re.compile(r"Joining (?P<world>wrld_[a-f0-9\-]+):(?P<instance
 # that, nothing invented to fill the gap.
 RE_VOTE_KICK_INITIATED = re.compile(r"A vote kick has been initiated against (?P<name>.+?), do you agree\?")
 RE_VOTE_KICK_SUCCEEDED = re.compile(r"Vote to kick (?P<name>.+?) succeeded")
+
+# Avatar-change line, fires for ANY nearby player (not just yourself) --
+# confirmed against VRCX's ParseLogAvatarChange, not guessed. Only ever
+# gives the avatar's own NAME, never its blueprint ID (avtr_...) -- that
+# ID is never written to the log for anyone else's avatar, only your own.
+RE_AVATAR_CHANGE = re.compile(r"\[Behaviour\] Switching (?P<name>.+?) to avatar (?P<avatar>.+)$")
+
+# Udon script exception -- confirmed against VRCX's ParseLogUdonException.
+# Doesn't name a player OR an avatar; it's a bare "something just threw"
+# signal. main.py correlates this against whoever most recently switched
+# avatars nearby (see RE_AVATAR_CHANGE above) to build a soft, never-
+# certain "possible crasher activity" flag -- see crasher_activity.py.
+RE_UDON_EXCEPTION = re.compile(
+    r"\[UdonBehaviour\] An exception occurred during Udon execution, this UdonBehaviour will be halted\."
+)
 
 # Every line VRChat writes starts with its own timestamp, e.g.
 # "2026.08.04 06:22:53 Debug      -  [Behaviour] OnPlayerJoined ...". This
@@ -185,6 +202,17 @@ def parse_line(line: str) -> Optional[LogEvent]:
         m = RE_VOTE_KICK_SUCCEEDED.search(line)
         if m:
             return LogEvent(kind="vote_kick_succeeded", display_name=m.group("name"), timestamp=timestamp)
+
+    elif "[Behaviour] Switching " in line:
+        m = RE_AVATAR_CHANGE.search(line)
+        if m:
+            return LogEvent(kind="avatar_change", display_name=m.group("name"), avatar_name=m.group("avatar"),
+                             timestamp=timestamp)
+
+    elif "[UdonBehaviour] An exception occurred" in line:
+        m = RE_UDON_EXCEPTION.search(line)
+        if m:
+            return LogEvent(kind="udon_exception", timestamp=timestamp)
 
     return None
 

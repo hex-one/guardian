@@ -53,8 +53,8 @@ from datetime import datetime, timedelta, timezone
 from dependency_check import ensure_dependencies
 ensure_dependencies()
 
-from PySide6.QtCore import QTimer, Qt, QUrl, QEvent, Signal
-from PySide6.QtGui import QColor, QCursor, QDesktopServices, QPixmap, QFont, QIcon, QPainter, QPen
+from PySide6.QtCore import QTimer, Qt, QUrl, QEvent, Signal, QPoint
+from PySide6.QtGui import QColor, QCursor, QDesktopServices, QPixmap, QFont, QIcon, QPainter, QPen, QPolygon
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -108,7 +108,9 @@ import sheets_watchlist
 import vote_kicks
 import vote_kick_submit
 from votes_dialog import VotesDialog
-from glow import DANGER
+import crasher_activity
+from crasher_activity_dialog import CrasherActivityDialog
+from glow import DANGER, WARNING
 from icon_row_delegate import IconRowDelegate, GROUP_ICON_ROLE, GROUP_ICON_LABELS_ROLE
 
 POLL_INTERVAL_MS = 1000               # how often we check the log file for new lines -- keep the pulse steady
@@ -116,6 +118,13 @@ TEMP_BAN_CHECK_INTERVAL_MS = 300_000   # 5 minutes -- safety-net poll; see _resc
 TEMP_BAN_CHECK_BUFFER_SECONDS = 120    # how long AFTER an expiry the precise check actually fires -- cushion against clock/scheduling slop landing a hair early and finding "not due yet"
 DEPARTED_RETENTION_HOURS = 6          # how long a departed player stays in the list before being pruned
 DEPARTED_PRUNE_INTERVAL_MS = 300_000  # 5 minutes -- doesn't need to be exact to the second
+
+# How close an avatar-change has to be, timing-wise, to a Udon exception
+# to count as a plausible cause -- a heuristic, not a proven threshold.
+# Wider catches more real hits but also more innocent bystanders who
+# happened to switch avatars around the same time; this leans toward
+# "narrow enough to mean something" over "catch everything."
+CRASHER_CORRELATION_WINDOW = timedelta(seconds=30)
 
 COPYRIGHT_TEXT = "Copyright Ascended VRC Group 2026"
 FOOTER_ICON_DEFAULT_COLOR = "#ece7fb"  # style.qss's default text color -- used when no custom font color is set
@@ -183,6 +192,15 @@ class QuickModWindow(QMainWindow):
         self._sort_mode = "Name"  # "Name", "Connection Time", "Rank", or "Status"
         self._sort_ascending = True  # flips if the same category is picked twice in a row
         self._watchlist_blink_state = False
+
+        # Short rolling window of "who just switched avatars" -- (display_
+        # name, avatar_name, when) tuples, pruned to CRASHER_CORRELATION_
+        # WINDOW * 2 so it never grows unbounded. This is the ONLY thing
+        # a Udon exception gets correlated against; see
+        # _handle_udon_exception_event. Purely in-memory -- there's
+        # nothing worth persisting about an avatar switch on its own,
+        # only what gets DERIVED from it.
+        self._recent_avatar_changes: list = []
 
         # Trust rank/age-verified/VRC+ status barely ever change mid-session,
         # so we look them up once per player (when they first appear) and
@@ -359,6 +377,13 @@ class QuickModWindow(QMainWindow):
             "Show Vote Kicks", lambda: self._show_aar_category("vote_kicks", "Vote Kicks Report")
         )
         show_vk_action.setToolTip("Show observed vote-kick events from the AAR")
+
+        show_crasher_action = self.reports_menu.addAction(
+            "Show Crasher Activity", lambda: self._show_aar_category("crasher_activity", "Crasher Activity Report")
+        )
+        show_crasher_action.setToolTip(
+            "Show possible crasher activity flags from the AAR -- circumstantial, not confirmed"
+        )
 
         # setCornerWidget is Qt's actual supported mechanism for placing a
         # widget in the corner of a menu bar -- more reliable across
@@ -718,6 +743,15 @@ class QuickModWindow(QMainWindow):
             votes_action.setEnabled(False)
             votes_action.setToolTip("No known vote-kick events for this player.")
 
+        crasher_action = menu.addAction(
+            "Crasher Activity", lambda: self._on_action("CrasherActivity", player_user_id, player_name)
+        )
+        if crasher_activity.get_flags_for_target(player_user_id, player_name):
+            crasher_action.setToolTip("View possible crasher activity flags for this player (circumstantial)")
+        else:
+            crasher_action.setEnabled(False)
+            crasher_action.setToolTip("No possible crasher activity observed for this player.")
+
         return menu
 
     def _on_action(self, action_name: str, player_user_id: str, player_name: str):
@@ -787,6 +821,10 @@ class QuickModWindow(QMainWindow):
 
         elif action_name == "Votes":
             dialog = VotesDialog(player_user_id, player_name)
+            dialog.exec()
+
+        elif action_name == "CrasherActivity":
+            dialog = CrasherActivityDialog(player_user_id, player_name)
             dialog.exec()
 
         elif action_name == "Kick":
@@ -1561,6 +1599,46 @@ class QuickModWindow(QMainWindow):
             self._vote_kick_checkmark_cache = pixmap
         return self._vote_kick_checkmark_cache
 
+    def _crasher_warning_pixmap(self) -> QPixmap:
+        """
+        An amber caution triangle, deliberately NOT the vote-kick
+        checkmark's flat red -- that one marks something VRChat itself
+        confirmed happened; this one marks a timing correlation a
+        human still needs to judge. Different certainty, different
+        color, same right-edge icon-row mechanism.
+        """
+        if not hasattr(self, "_crasher_warning_cache"):
+            size = IconRowDelegate.ICON_SIZE
+            pixmap = QPixmap(size, size)
+            pixmap.fill(Qt.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+
+            triangle = QPolygon([
+                QPoint(int(size * 0.5), int(size * 0.06)),
+                QPoint(int(size * 0.05), int(size * 0.92)),
+                QPoint(int(size * 0.95), int(size * 0.92)),
+            ])
+            painter.setPen(QPen(QColor(WARNING), 1))
+            painter.setBrush(QColor(WARNING))
+            painter.drawPolygon(triangle)
+
+            # Exclamation mark, dark-on-amber for contrast -- same
+            # "caution" language a real warning sign uses.
+            mark_pen = QPen(QColor("#1a1a1a"))
+            mark_pen.setWidth(2)
+            mark_pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(mark_pen)
+            painter.drawLine(int(size * 0.5), int(size * 0.38), int(size * 0.5), int(size * 0.66))
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#1a1a1a"))
+            dot_r = max(1, size // 12)
+            painter.drawEllipse(QPoint(int(size * 0.5), int(size * 0.80)), dot_r, dot_r)
+
+            painter.end()
+            self._crasher_warning_cache = pixmap
+        return self._crasher_warning_cache
+
     def _get_group_icon(self, group_id: str, icon_url: str) -> tuple:
         """
         Returns (QPixmap or None, data-uri string or None) for a group's
@@ -1766,7 +1844,68 @@ class QuickModWindow(QMainWindow):
         elif event.kind in ("vote_kick_initiated", "vote_kick_succeeded"):
             self._handle_vote_kick_event(event)
 
+        elif event.kind == "avatar_change":
+            timestamp = event.timestamp or datetime.now()
+            self._recent_avatar_changes.append((event.display_name, event.avatar_name, timestamp))
+            cutoff = datetime.now() - CRASHER_CORRELATION_WINDOW * 2
+            self._recent_avatar_changes = [c for c in self._recent_avatar_changes if c[2] >= cutoff]
+
+        elif event.kind == "udon_exception":
+            self._handle_udon_exception_event(event)
+
         self._refresh_list()
+
+    def _handle_udon_exception_event(self, event):
+        """
+        Correlates a bare "something threw" signal against whoever
+        switched avatars in the last CRASHER_CORRELATION_WINDOW seconds.
+        Zero candidates means nothing recent to blame it on -- most
+        Udon exceptions are ordinary world-script noise unrelated to any
+        player's avatar, so silently skipping those keeps this from
+        drowning in false alarms. More than one candidate means genuine
+        ambiguity, and every candidate gets flagged rather than
+        arbitrarily picking one -- guessing which of several people did
+        it would turn a timing correlation into something that looks
+        like an accusation.
+        """
+        timestamp = event.timestamp or datetime.now()
+        window_start = timestamp - CRASHER_CORRELATION_WINDOW
+        recent = [c for c in self._recent_avatar_changes if window_start <= c[2] <= timestamp]
+        if not recent:
+            return
+
+        candidates = [
+            crasher_activity.CrasherCandidate(
+                display_name=display_name,
+                user_id=self._resolve_player_id_by_name(display_name),
+                avatar_name=avatar_name,
+                seconds_before_exception=(timestamp - changed_at).total_seconds(),
+            )
+            for display_name, avatar_name, changed_at in recent
+        ]
+
+        observed_by = self.vrchat_client.display_name if self.vrchat_client else "unknown"
+        crasher_activity.record_flag(
+            candidates, self.current_world_id, self.current_instance_id, observed_by, timestamp.isoformat(),
+        )
+
+        if len(candidates) == 1:
+            target_name, target_id, detail = candidates[0].display_name, candidates[0].user_id, (
+                f"Possible crasher activity: a Udon exception fired {candidates[0].seconds_before_exception:.0f}s "
+                f"after {candidates[0].display_name} switched to avatar \"{candidates[0].avatar_name}\". "
+                "Circumstantial, not confirmed -- an ordinary broken avatar looks identical in the log."
+            )
+        else:
+            names = ", ".join(c.display_name for c in candidates)
+            target_name, target_id, detail = "multiple possible", "", (
+                f"Possible crasher activity: a Udon exception fired with {len(candidates)} players having "
+                f"just switched avatars ({names}) -- ambiguous, can't attribute to one of them."
+            )
+
+        aar.save_entry(aar.AAREntry(
+            timestamp=aar.now_iso(), moderator=observed_by, action="crasher_activity_flag",
+            target_display_name=target_name, target_user_id=target_id, details=detail, success=True,
+        ))
 
     def _resolve_player_id_by_name(self, display_name: str) -> str:
         """VRChat's vote-kick log lines only ever give a display name,
@@ -1817,6 +1956,7 @@ class QuickModWindow(QMainWindow):
         entries = list(self.players.values())
         watched_entries = watchlist.get_watched_entries()
         vote_kick_ids, vote_kick_names = vote_kicks.get_targets_with_events()
+        crasher_ids, crasher_names = crasher_activity.get_targets_with_flags()
 
         # Each mode's "natural" (ascending=True) direction -- toggled to
         # the opposite when the same category was just re-picked.
@@ -1920,6 +2060,18 @@ class QuickModWindow(QMainWindow):
             if has_vote_kick_history:
                 pixmaps.append(self._vote_kick_checkmark_pixmap())
                 labels.append("Has known vote-kick event(s) — right-click → Votes")
+
+            # Amber caution triangle -- a timing correlation Guardian
+            # noticed, not a confirmed finding. Drawn right after the
+            # checkmark so the two never get visually confused for one
+            # another at a glance.
+            has_crasher_flag = (
+                (entry.user_id.startswith("usr_") and entry.user_id in crasher_ids)
+                or entry.display_name in crasher_names
+            )
+            if has_crasher_flag:
+                pixmaps.append(self._crasher_warning_pixmap())
+                labels.append("Possible crasher activity observed — right-click → Crasher Activity")
 
             if self.current_group_id and self.current_group_icon_pixmap and self.current_group_id in player_group_ids:
                 pixmaps.append(self.current_group_icon_pixmap)
