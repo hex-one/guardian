@@ -83,7 +83,8 @@ class LogEvent:
 
     kind is one of: "instance_change", "player_join", "player_left",
     "vote_kick_initiated", "vote_kick_succeeded", "avatar_change",
-    "udon_exception", "model_validation_warning", "application_quit"
+    "udon_exception", "model_validation_warning", "application_quit",
+    "avatar_zero_mb_download"
     """
     kind: str
     display_name: Optional[str] = None
@@ -164,6 +165,17 @@ RE_MODEL_VALIDATION_WARNING = re.compile(r"UnityPackage: Model failed validation
 # _check_for_silent_crash), not this line's presence.
 RE_APPLICATION_QUIT = re.compile(r"VRCApplication: (?:OnApplicationQuit|HandleApplicationQuit) at ")
 
+# An avatar's asset bundle reporting as 0.0 MB -- NOT confirmed against
+# any primary source (unlike the lines above), taken from a log excerpt
+# a user's contact shared as part of a "this pattern means crasher" tip.
+# On its own this is common and mostly meaningless (an avatar already
+# cached locally legitimately reports 0MB, nothing left to download).
+# main.py only treats it as worth anything when it follows a
+# RE_MODEL_VALIDATION_WARNING closely -- see _handle_zero_mb_pairing.
+RE_AVATAR_ZERO_MB_DOWNLOAD = re.compile(
+    r"\[AssetBundleDownloadManager\] Download for avatar \([^)]*\) \((?P<size>[\d.]+) MB\) started"
+)
+
 # Every line VRChat writes starts with its own timestamp, e.g.
 # "2026.08.04 06:22:53 Debug      -  [Behaviour] OnPlayerJoined ...". This
 # is what lets us know WHEN a player joined (their "connection time"), not
@@ -239,6 +251,16 @@ def parse_line(line: str) -> Optional[LogEvent]:
         m = RE_APPLICATION_QUIT.search(line)
         if m:
             return LogEvent(kind="application_quit", timestamp=timestamp)
+
+    elif "[AssetBundleDownloadManager] Download for avatar " in line:
+        m = RE_AVATAR_ZERO_MB_DOWNLOAD.search(line)
+        if m:
+            try:
+                size_mb = float(m.group("size"))
+            except ValueError:
+                return None
+            if size_mb < 0.05:  # "0.0 MB" with a little float slop
+                return LogEvent(kind="avatar_zero_mb_download", timestamp=timestamp)
 
     return None
 

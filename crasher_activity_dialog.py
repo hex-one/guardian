@@ -33,6 +33,7 @@ from glow import DANGER, WARNING
 _SIGNAL_LABELS = {
     "udon_exception": "Udon exception",
     "model_validation_warning": "avatar validation warning",
+    "validation_warning_with_zero_mb": "validation warning + 0MB download",
     "crash_after_validation_warning": "log went silent after a validation warning",
 }
 

@@ -135,6 +135,19 @@ CRASHER_CORRELATION_WINDOW = timedelta(seconds=30)
 SILENT_CRASH_SILENCE_THRESHOLD = timedelta(seconds=30)
 SILENT_CRASH_CHECK_INTERVAL_MS = 20_000
 
+# How long after a model-validation warning a 0MB avatar download still
+# counts as "the same load" rather than an unrelated later one. The one
+# example seen had them landing within the same second or two; this is
+# generous on top of that, not a measured threshold.
+ZERO_MB_PAIRING_WINDOW = timedelta(seconds=10)
+ZERO_MB_PAIRING_WINDOW_MS = int(ZERO_MB_PAIRING_WINDOW.total_seconds() * 1000)
+
+CRASHER_SIGNAL_LABELS = {
+    "udon_exception": "a Udon exception",
+    "model_validation_warning": "a model-validation warning",
+    "validation_warning_with_zero_mb": "a model-validation warning paired with a 0MB avatar download",
+}
+
 COPYRIGHT_TEXT = "Copyright Ascended VRC Group 2026"
 FOOTER_ICON_DEFAULT_COLOR = "#ece7fb"  # style.qss's default text color -- used when no custom font color is set
 
@@ -215,6 +228,7 @@ class QuickModWindow(QMainWindow):
         # each one gates. None until we've actually seen the relevant
         # line at least once this session.
         self._last_validation_warning_at = None
+        self._last_validation_warning_paired = False
         self._last_graceful_quit_at = None
         self._silent_crash_already_flagged = False
 
@@ -1877,11 +1891,24 @@ class QuickModWindow(QMainWindow):
             self._recent_avatar_changes = [c for c in self._recent_avatar_changes if c[2] >= cutoff]
 
         elif event.kind == "udon_exception":
-            self._handle_crasher_signal_event(event, signal="udon_exception")
+            self._handle_crasher_signal_event(event.timestamp or datetime.now(), signal="udon_exception")
 
         elif event.kind == "model_validation_warning":
-            self._last_validation_warning_at = event.timestamp or datetime.now()
-            self._handle_crasher_signal_event(event, signal="model_validation_warning")
+            warning_time = event.timestamp or datetime.now()
+            self._last_validation_warning_at = warning_time
+            self._last_validation_warning_paired = False
+            # Don't flag yet -- wait to see whether a zero-MB avatar
+            # download follows within the pairing window (see
+            # _handle_zero_mb_pairing). If nothing pairs with it in
+            # time, _resolve_validation_warning falls back to the
+            # plain, weaker standalone flag.
+            QTimer.singleShot(
+                ZERO_MB_PAIRING_WINDOW_MS,
+                lambda ts=warning_time: self._resolve_validation_warning(ts),
+            )
+
+        elif event.kind == "avatar_zero_mb_download":
+            self._handle_zero_mb_pairing(event.timestamp or datetime.now())
 
         elif event.kind == "application_quit":
             self._last_graceful_quit_at = event.timestamp or datetime.now()
@@ -1929,25 +1956,23 @@ class QuickModWindow(QMainWindow):
             target_display_name=target_name, target_user_id=target_id, details=detail, success=True,
         ))
 
-    def _handle_crasher_signal_event(self, event, signal: str):
+    def _handle_crasher_signal_event(self, timestamp: datetime, signal: str):
         """
-        Correlates a bare "something happened" signal (a Udon exception,
-        or a model-validation warning) against whoever switched avatars
-        in the last CRASHER_CORRELATION_WINDOW seconds. Zero candidates
-        means nothing recent to blame it on -- most of these signals are
-        ordinary noise unrelated to any player's avatar, so silently
-        skipping those keeps this from drowning in false alarms. More
-        than one candidate means genuine ambiguity, and every candidate
-        gets flagged rather than arbitrarily picking one -- guessing
-        which of several people did it would turn a timing correlation
-        into something that looks like an accusation.
+        Correlates a bare "something happened" signal against whoever
+        switched avatars in the last CRASHER_CORRELATION_WINDOW seconds.
+        Zero candidates means nothing recent to blame it on -- most of
+        these signals are ordinary noise unrelated to any player's
+        avatar, so silently skipping those keeps this from drowning in
+        false alarms. More than one candidate means genuine ambiguity,
+        and every candidate gets flagged rather than arbitrarily picking
+        one -- guessing which of several people did it would turn a
+        timing correlation into something that looks like an accusation.
         """
-        timestamp = event.timestamp or datetime.now()
         candidates = self._correlate_avatar_changes(timestamp)
         if not candidates:
             return
 
-        signal_label = "a Udon exception" if signal == "udon_exception" else "a model-validation warning"
+        signal_label = CRASHER_SIGNAL_LABELS.get(signal, signal)
 
         if len(candidates) == 1:
             single_detail = (
@@ -1965,6 +1990,39 @@ class QuickModWindow(QMainWindow):
             )
 
         self._record_crasher_flag(candidates, timestamp, signal, "circumstantial", single_detail, ambiguous_detail)
+
+    def _handle_zero_mb_pairing(self, timestamp: datetime):
+        """
+        A tip passed along secondhand, checked rather than trusted
+        whole: a lone 0MB avatar download is common and mostly
+        meaningless (an already-cached avatar reports that legitimately,
+        nothing left to fetch). What was actually claimed is the PAIR --
+        a validation warning immediately followed by a 0MB report for
+        that same load. Only that combination gets treated as its own,
+        more specific signal; an unpaired 0MB download does nothing here
+        at all.
+        """
+        if self._last_validation_warning_at is None or self._last_validation_warning_paired:
+            return
+        if timestamp - self._last_validation_warning_at > ZERO_MB_PAIRING_WINDOW:
+            return
+        self._last_validation_warning_paired = True
+        self._handle_crasher_signal_event(self._last_validation_warning_at, signal="validation_warning_with_zero_mb")
+
+    def _resolve_validation_warning(self, warning_time: datetime):
+        """
+        Fires ZERO_MB_PAIRING_WINDOW_MS after a validation warning, and
+        only actually does anything if NOTHING paired with it in that
+        window -- falls back to flagging it as the plain, weaker
+        standalone signal. The `warning_time` equality check guards
+        against a NEWER validation warning having since overwritten
+        _last_validation_warning_at (a rare case -- two warnings inside
+        one pairing window -- where the older one is simply dropped
+        rather than double-tracked; not worth the extra state for how
+        seldom that actually happens)."""
+        if self._last_validation_warning_at != warning_time or self._last_validation_warning_paired:
+            return
+        self._handle_crasher_signal_event(warning_time, signal="model_validation_warning")
 
     def _check_for_silent_crash(self):
         """
@@ -2001,12 +2059,20 @@ class QuickModWindow(QMainWindow):
         if not candidates:
             return  # VRChat's gone and the timing is suspicious, but nobody to actually name
 
+        # Extra corroborating detail, not a confidence bump -- the flag
+        # is already "strong" on the silence alone; this just gives a
+        # mod reading it one more data point to weigh for themselves.
+        pairing_note = (
+            " That avatar's asset bundle also reported as 0.0 MB, matching the paired pattern this tool "
+            "watches for separately." if self._last_validation_warning_paired else ""
+        )
+
         if len(candidates) == 1:
             single_detail = (
                 f"VRChat's log went silent (process no longer running) shortly after a model-validation warning "
                 f"that followed {candidates[0].display_name} switching to avatar \"{candidates[0].avatar_name}\". "
                 "No graceful shutdown was logged in between -- consistent with an actual crash, though a client "
-                "can also die for unrelated reasons."
+                f"can also die for unrelated reasons.{pairing_note}"
             )
             ambiguous_detail = ""
         else:
@@ -2014,7 +2080,8 @@ class QuickModWindow(QMainWindow):
             single_detail = ""
             ambiguous_detail = (
                 f"VRChat's log went silent shortly after a model-validation warning, with {len(candidates)} "
-                f"players having just switched avatars ({names}) -- ambiguous, can't attribute to one of them."
+                f"players having just switched avatars ({names}) -- ambiguous, can't attribute to one of "
+                f"them.{pairing_note}"
             )
 
         self._record_crasher_flag(
