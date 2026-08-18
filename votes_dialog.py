@@ -58,6 +58,7 @@ class VotesDialog(QDialog):
 
         self.event_list = QListWidget()
         self.event_list.setObjectName("votesEventList")
+        self.event_list.setToolTip("Vote-kick events Guardian has recorded for this player, most recent last")
         outer.addWidget(self.event_list)
 
         self.status_label = QLabel("")
@@ -78,6 +79,7 @@ class VotesDialog(QDialog):
 
         close_button = QPushButton("Close")
         close_button.setObjectName("votesCloseButton")
+        close_button.setToolTip("Close this window")
         close_button.clicked.connect(self.accept)
         button_row.addWidget(close_button)
 

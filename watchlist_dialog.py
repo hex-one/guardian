@@ -83,10 +83,12 @@ class WatchlistDialog(QDialog):
 
         watchlist_page = QWidget()
         outer = QVBoxLayout(watchlist_page)
-        tabs.addTab(watchlist_page, "Watchlist")
+        watchlist_tab_index = tabs.addTab(watchlist_page, "Watchlist")
+        tabs.setTabToolTip(watchlist_tab_index, "Players flagged for extra attention")
 
         votekicks_page = QWidget()
-        tabs.addTab(votekicks_page, "VoteKicks")
+        votekicks_tab_index = tabs.addTab(votekicks_page, "VoteKicks")
+        tabs.setTabToolTip(votekicks_tab_index, "Vote-kick events Guardian has observed in the log")
         self._build_vote_kicks_tab(votekicks_page)
 
         header = QLabel(
@@ -682,6 +684,7 @@ class WatchlistDialog(QDialog):
 
         self.vote_kicks_list = QListWidget()
         self.vote_kicks_list.setObjectName("voteKicksList")
+        self.vote_kicks_list.setToolTip("Vote-kick events Guardian has observed -- local first, newest first")
         layout.addWidget(self.vote_kicks_list)
 
         self.vote_kicks_status_label = QLabel("")

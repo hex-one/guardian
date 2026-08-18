@@ -108,6 +108,7 @@ import sheets_watchlist
 import vote_kicks
 import vote_kick_submit
 from votes_dialog import VotesDialog
+from glow import DANGER
 from icon_row_delegate import IconRowDelegate, GROUP_ICON_ROLE, GROUP_ICON_LABELS_ROLE
 
 POLL_INTERVAL_MS = 1000               # how often we check the log file for new lines -- keep the pulse steady
@@ -1548,7 +1549,7 @@ class QuickModWindow(QMainWindow):
             pixmap.fill(Qt.transparent)
             painter = QPainter(pixmap)
             painter.setRenderHint(QPainter.Antialiasing)
-            pen = QPen(QColor("#E8352B"))
+            pen = QPen(QColor(DANGER))  # same red the rest of the UI already speaks (glow.py)
             pen.setWidth(2)
             pen.setCapStyle(Qt.RoundCap)
             pen.setJoinStyle(Qt.RoundJoin)
