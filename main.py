@@ -110,6 +110,7 @@ import vote_kick_submit
 from votes_dialog import VotesDialog
 import crasher_activity
 from crasher_activity_dialog import CrasherActivityDialog
+import process_check
 from glow import DANGER, WARNING
 from icon_row_delegate import IconRowDelegate, GROUP_ICON_ROLE, GROUP_ICON_LABELS_ROLE
 
@@ -125,6 +126,14 @@ DEPARTED_PRUNE_INTERVAL_MS = 300_000  # 5 minutes -- doesn't need to be exact to
 # happened to switch avatars around the same time; this leans toward
 # "narrow enough to mean something" over "catch everything."
 CRASHER_CORRELATION_WINDOW = timedelta(seconds=30)
+
+# How long the log has to sit motionless before _check_for_silent_crash
+# bothers asking the OS whether VRChat.exe is even still running. Only
+# gates HOW OFTEN that process check happens -- the check itself (plus
+# requiring a validation warning with no graceful quit after it) is
+# what actually prevents a normal quiet moment from reading as a crash.
+SILENT_CRASH_SILENCE_THRESHOLD = timedelta(seconds=30)
+SILENT_CRASH_CHECK_INTERVAL_MS = 20_000
 
 COPYRIGHT_TEXT = "Copyright Ascended VRC Group 2026"
 FOOTER_ICON_DEFAULT_COLOR = "#ece7fb"  # style.qss's default text color -- used when no custom font color is set
@@ -196,11 +205,18 @@ class QuickModWindow(QMainWindow):
         # Short rolling window of "who just switched avatars" -- (display_
         # name, avatar_name, when) tuples, pruned to CRASHER_CORRELATION_
         # WINDOW * 2 so it never grows unbounded. This is the ONLY thing
-        # a Udon exception gets correlated against; see
-        # _handle_udon_exception_event. Purely in-memory -- there's
-        # nothing worth persisting about an avatar switch on its own,
-        # only what gets DERIVED from it.
+        # a udon-exception/validation-warning signal ever gets
+        # correlated against; see _handle_crasher_signal_event. Purely
+        # in-memory -- there's nothing worth persisting about an avatar
+        # switch on its own, only what gets DERIVED from it.
         self._recent_avatar_changes: list = []
+
+        # State for _check_for_silent_crash -- see that method for what
+        # each one gates. None until we've actually seen the relevant
+        # line at least once this session.
+        self._last_validation_warning_at = None
+        self._last_graceful_quit_at = None
+        self._silent_crash_already_flagged = False
 
         # Trust rank/age-verified/VRC+ status barely ever change mid-session,
         # so we look them up once per player (when they first appear) and
@@ -1179,6 +1195,8 @@ class QuickModWindow(QMainWindow):
         self.sign_out_requested = True
         if hasattr(self, "poll_timer"):
             self.poll_timer.stop()
+        if hasattr(self, "silent_crash_timer"):
+            self.silent_crash_timer.stop()
         if hasattr(self, "temp_ban_timer"):
             self.temp_ban_timer.stop()
         if hasattr(self, "temp_ban_precise_timer"):
@@ -1798,6 +1816,14 @@ class QuickModWindow(QMainWindow):
         self.poll_timer.timeout.connect(self._poll_log)
         self.poll_timer.start(appearance_settings.load_settings().poll_interval_ms or POLL_INTERVAL_MS)
 
+        # Separate, much slower timer -- only ever does real work (a
+        # process check) once the log's already gone quiet past
+        # SILENT_CRASH_SILENCE_THRESHOLD, so running it independently of
+        # the fast poll_timer above costs nothing on the common path.
+        self.silent_crash_timer = QTimer(self)
+        self.silent_crash_timer.timeout.connect(self._check_for_silent_crash)
+        self.silent_crash_timer.start(SILENT_CRASH_CHECK_INTERVAL_MS)
+
     def _poll_log(self):
         if not self.watcher:
             return
@@ -1851,61 +1877,150 @@ class QuickModWindow(QMainWindow):
             self._recent_avatar_changes = [c for c in self._recent_avatar_changes if c[2] >= cutoff]
 
         elif event.kind == "udon_exception":
-            self._handle_udon_exception_event(event)
+            self._handle_crasher_signal_event(event, signal="udon_exception")
+
+        elif event.kind == "model_validation_warning":
+            self._last_validation_warning_at = event.timestamp or datetime.now()
+            self._handle_crasher_signal_event(event, signal="model_validation_warning")
+
+        elif event.kind == "application_quit":
+            self._last_graceful_quit_at = event.timestamp or datetime.now()
 
         self._refresh_list()
 
-    def _handle_udon_exception_event(self, event):
-        """
-        Correlates a bare "something threw" signal against whoever
-        switched avatars in the last CRASHER_CORRELATION_WINDOW seconds.
-        Zero candidates means nothing recent to blame it on -- most
-        Udon exceptions are ordinary world-script noise unrelated to any
-        player's avatar, so silently skipping those keeps this from
-        drowning in false alarms. More than one candidate means genuine
-        ambiguity, and every candidate gets flagged rather than
-        arbitrarily picking one -- guessing which of several people did
-        it would turn a timing correlation into something that looks
-        like an accusation.
-        """
-        timestamp = event.timestamp or datetime.now()
-        window_start = timestamp - CRASHER_CORRELATION_WINDOW
-        recent = [c for c in self._recent_avatar_changes if window_start <= c[2] <= timestamp]
-        if not recent:
-            return
-
-        candidates = [
+    def _correlate_avatar_changes(self, anchor: datetime) -> list:
+        """Every avatar-change within CRASHER_CORRELATION_WINDOW of
+        `anchor`, turned into CrasherCandidates. Shared by every signal
+        type that needs "who switched avatars right before this" --
+        the udon-exception path, the validation-warning path, and the
+        silent-crash path all lean on the exact same window and the
+        exact same never-guess-one-of-several rule."""
+        window_start = anchor - CRASHER_CORRELATION_WINDOW
+        recent = [c for c in self._recent_avatar_changes if window_start <= c[2] <= anchor]
+        return [
             crasher_activity.CrasherCandidate(
                 display_name=display_name,
                 user_id=self._resolve_player_id_by_name(display_name),
                 avatar_name=avatar_name,
-                seconds_before_exception=(timestamp - changed_at).total_seconds(),
+                seconds_before_exception=(anchor - changed_at).total_seconds(),
             )
             for display_name, avatar_name, changed_at in recent
         ]
 
+    def _record_crasher_flag(self, candidates: list, anchor: datetime, signal: str, confidence: str,
+                              single_detail: str, ambiguous_detail: str):
+        """Shared tail end of every crasher-signal path: save the flag,
+        write the AAR entry. `single_detail`/`ambiguous_detail` are
+        format strings the caller's already filled in -- kept here only
+        so the save-and-log plumbing isn't duplicated three times."""
         observed_by = self.vrchat_client.display_name if self.vrchat_client else "unknown"
         crasher_activity.record_flag(
-            candidates, self.current_world_id, self.current_instance_id, observed_by, timestamp.isoformat(),
+            candidates, self.current_world_id, self.current_instance_id, observed_by, anchor.isoformat(),
+            signal=signal, confidence=confidence,
         )
 
         if len(candidates) == 1:
-            target_name, target_id, detail = candidates[0].display_name, candidates[0].user_id, (
-                f"Possible crasher activity: a Udon exception fired {candidates[0].seconds_before_exception:.0f}s "
-                f"after {candidates[0].display_name} switched to avatar \"{candidates[0].avatar_name}\". "
-                "Circumstantial, not confirmed -- an ordinary broken avatar looks identical in the log."
-            )
+            target_name, target_id, detail = candidates[0].display_name, candidates[0].user_id, single_detail
         else:
-            names = ", ".join(c.display_name for c in candidates)
-            target_name, target_id, detail = "multiple possible", "", (
-                f"Possible crasher activity: a Udon exception fired with {len(candidates)} players having "
-                f"just switched avatars ({names}) -- ambiguous, can't attribute to one of them."
-            )
+            target_name, target_id, detail = "multiple possible", "", ambiguous_detail
 
         aar.save_entry(aar.AAREntry(
             timestamp=aar.now_iso(), moderator=observed_by, action="crasher_activity_flag",
             target_display_name=target_name, target_user_id=target_id, details=detail, success=True,
         ))
+
+    def _handle_crasher_signal_event(self, event, signal: str):
+        """
+        Correlates a bare "something happened" signal (a Udon exception,
+        or a model-validation warning) against whoever switched avatars
+        in the last CRASHER_CORRELATION_WINDOW seconds. Zero candidates
+        means nothing recent to blame it on -- most of these signals are
+        ordinary noise unrelated to any player's avatar, so silently
+        skipping those keeps this from drowning in false alarms. More
+        than one candidate means genuine ambiguity, and every candidate
+        gets flagged rather than arbitrarily picking one -- guessing
+        which of several people did it would turn a timing correlation
+        into something that looks like an accusation.
+        """
+        timestamp = event.timestamp or datetime.now()
+        candidates = self._correlate_avatar_changes(timestamp)
+        if not candidates:
+            return
+
+        signal_label = "a Udon exception" if signal == "udon_exception" else "a model-validation warning"
+
+        if len(candidates) == 1:
+            single_detail = (
+                f"Possible crasher activity: {signal_label} fired {candidates[0].seconds_before_exception:.0f}s "
+                f"after {candidates[0].display_name} switched to avatar \"{candidates[0].avatar_name}\". "
+                "Circumstantial, not confirmed -- an ordinary broken avatar looks identical in the log."
+            )
+            ambiguous_detail = ""  # unused in the single-candidate branch
+        else:
+            names = ", ".join(c.display_name for c in candidates)
+            single_detail = ""  # unused in the ambiguous branch
+            ambiguous_detail = (
+                f"Possible crasher activity: {signal_label} fired with {len(candidates)} players having "
+                f"just switched avatars ({names}) -- ambiguous, can't attribute to one of them."
+            )
+
+        self._record_crasher_flag(candidates, timestamp, signal, "circumstantial", single_detail, ambiguous_detail)
+
+    def _check_for_silent_crash(self):
+        """
+        Guardian's strongest crasher signal, and the only one that
+        actually correlates with a real crash outcome rather than just
+        an exception the game shrugged off and kept running past. Fires
+        at most once per gap: the log stops growing, VRChat.exe is
+        confirmed gone (not just quiet), and the last suspicious thing
+        logged was a model-validation warning with no graceful
+        OnApplicationQuit/HandleApplicationQuit in between. Still not
+        "confirmed" -- a client can die for plenty of reasons that have
+        nothing to do with any particular avatar -- just meaningfully
+        stronger than a correlation the game recovered from.
+        """
+        if not self.watcher or not self.watcher.last_line_read_at:
+            return
+
+        silence = datetime.now() - self.watcher.last_line_read_at
+        if silence < SILENT_CRASH_SILENCE_THRESHOLD:
+            self._silent_crash_already_flagged = False  # the log's moving again -- clear the guard
+            return
+
+        if self._silent_crash_already_flagged:
+            return
+        if self._last_validation_warning_at is None:
+            return
+        if self._last_graceful_quit_at and self._last_graceful_quit_at >= self._last_validation_warning_at:
+            return
+        if process_check.is_vrchat_running():
+            return
+
+        candidates = self._correlate_avatar_changes(self._last_validation_warning_at)
+        self._silent_crash_already_flagged = True  # don't re-check/re-flag every tick while VRChat stays closed
+        if not candidates:
+            return  # VRChat's gone and the timing is suspicious, but nobody to actually name
+
+        if len(candidates) == 1:
+            single_detail = (
+                f"VRChat's log went silent (process no longer running) shortly after a model-validation warning "
+                f"that followed {candidates[0].display_name} switching to avatar \"{candidates[0].avatar_name}\". "
+                "No graceful shutdown was logged in between -- consistent with an actual crash, though a client "
+                "can also die for unrelated reasons."
+            )
+            ambiguous_detail = ""
+        else:
+            names = ", ".join(c.display_name for c in candidates)
+            single_detail = ""
+            ambiguous_detail = (
+                f"VRChat's log went silent shortly after a model-validation warning, with {len(candidates)} "
+                f"players having just switched avatars ({names}) -- ambiguous, can't attribute to one of them."
+            )
+
+        self._record_crasher_flag(
+            candidates, self._last_validation_warning_at, "crash_after_validation_warning", "strong",
+            single_detail, ambiguous_detail,
+        )
 
     def _resolve_player_id_by_name(self, display_name: str) -> str:
         """VRChat's vote-kick log lines only ever give a display name,

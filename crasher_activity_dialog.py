@@ -2,18 +2,21 @@
 crasher_activity_dialog.py
 
 The "Crasher Activity" right-click viewer -- shows every locally-
-observed correlation between a Udon script exception and this player
-having just switched avatars nearby. Opened from main.py's player
-menu, disabled there entirely when there's nothing to show (see
-_build_player_menu).
+observed correlation between this player switching avatars nearby and
+something suspicious happening shortly after (a Udon script exception,
+a model-validation warning, or -- the strongest one -- the log going
+silent for good with no graceful shutdown logged in between). Opened
+from main.py's player menu, disabled there entirely when there's
+nothing to show (see _build_player_menu).
 
 No shared list, no "Check Shared List" button the way votes_dialog.py
 has one -- see crasher_activity.py's module docstring for why this
 stays local. What's shown here is exactly what Guardian saw and
 nothing more; the caveat text says so plainly rather than letting a
-correlation read as a verdict.
+correlation read as a verdict, even for the "strong"-confidence entries.
 """
 
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -25,6 +28,13 @@ from PySide6.QtWidgets import (
 )
 
 import crasher_activity
+from glow import DANGER, WARNING
+
+_SIGNAL_LABELS = {
+    "udon_exception": "Udon exception",
+    "model_validation_warning": "avatar validation warning",
+    "crash_after_validation_warning": "log went silent after a validation warning",
+}
 
 
 class CrasherActivityDialog(QDialog):
@@ -44,10 +54,10 @@ class CrasherActivityDialog(QDialog):
         outer = QVBoxLayout(self)
 
         header = QLabel(
-            f"Udon script exceptions Guardian observed shortly after {self.player_name} switched "
-            "avatars nearby. This is a TIMING correlation, not proof -- an ordinary broken avatar "
-            "throws the exact same kind of exception a deliberately malicious one does, and "
-            "VRChat's log never says which one happened."
+            f"Suspicious timing Guardian observed shortly after {self.player_name} switched avatars "
+            "nearby. Every entry here is a TIMING correlation, not proof -- even the \"strong\"-"
+            "confidence ones, where the log went silent for good right after. A client can crash "
+            "for reasons that have nothing to do with any particular avatar."
         )
         header.setObjectName("crasherActivityHeader")
         header.setWordWrap(True)
@@ -76,10 +86,14 @@ class CrasherActivityDialog(QDialog):
 
     def _format_flag(self, flag: "crasher_activity.CrasherFlag") -> str:
         where = f"world {flag.world_id}" + (f" (instance {flag.instance_id})" if flag.instance_id else "")
+        signal_label = _SIGNAL_LABELS.get(flag.signal, flag.signal)
+        confidence_tag = "STRONG" if flag.confidence == "strong" else "circumstantial"
+        prefix = f"[{confidence_tag}] {signal_label}"
+
         if len(flag.candidates) == 1:
             c = flag.candidates[0]
-            return (f"{flag.observed_at} — {where} — avatar \"{c.avatar_name}\", switched "
-                    f"{c.seconds_before_exception:.0f}s before the exception")
+            return (f"{prefix} — {flag.observed_at} — {where} — avatar \"{c.avatar_name}\", switched "
+                    f"{c.seconds_before_exception:.0f}s before")
 
         others = ", ".join(
             f"{c.display_name} (\"{c.avatar_name}\")" for c in flag.candidates
@@ -89,7 +103,7 @@ class CrasherActivityDialog(QDialog):
             c for c in flag.candidates
             if c.user_id == self.player_user_id or c.display_name == self.player_name
         )
-        return (f"{flag.observed_at} — {where} — AMBIGUOUS: avatar \"{mine.avatar_name}\" "
+        return (f"{prefix} — {flag.observed_at} — {where} — AMBIGUOUS: avatar \"{mine.avatar_name}\" "
                 f"({mine.seconds_before_exception:.0f}s before) — also switched around the same "
                 f"time: {others}")
 
@@ -99,6 +113,16 @@ class CrasherActivityDialog(QDialog):
         if not flags:
             self.status_label.setText("No possible crasher activity observed for this player.")
             return
+
+        strong_count = 0
         for flag in sorted(flags, key=lambda f: f.observed_at):
-            self.flag_list.addItem(QListWidgetItem(self._format_flag(flag)))
-        self.status_label.setText(f"{len(flags)} flag(s) — circumstantial, review before acting on any of them.")
+            item = QListWidgetItem(self._format_flag(flag))
+            if flag.confidence == "strong":
+                item.setForeground(QColor(DANGER))
+                strong_count += 1
+            else:
+                item.setForeground(QColor(WARNING))
+            self.flag_list.addItem(item)
+
+        strong_note = f", {strong_count} of them strong-confidence" if strong_count else ""
+        self.status_label.setText(f"{len(flags)} flag(s){strong_note} — review before acting on any of them.")

@@ -83,7 +83,7 @@ class LogEvent:
 
     kind is one of: "instance_change", "player_join", "player_left",
     "vote_kick_initiated", "vote_kick_succeeded", "avatar_change",
-    "udon_exception"
+    "udon_exception", "model_validation_warning", "application_quit"
     """
     kind: str
     display_name: Optional[str] = None
@@ -147,6 +147,22 @@ RE_AVATAR_CHANGE = re.compile(r"\[Behaviour\] Switching (?P<name>.+?) to avatar 
 RE_UDON_EXCEPTION = re.compile(
     r"\[UdonBehaviour\] An exception occurred during Udon execution, this UdonBehaviour will be halted\."
 )
+
+# A Unity-level avatar metadata warning -- NOT confirmed against VRCX
+# (it isn't in VRCX's parser at all), but the two field names it names
+# are real, documented fields on VRChat's own UnityPackage API schema,
+# so this reads as genuine VRChat/Unity log text, not fabricated. What
+# it actually MEANS is much less certain: "returning anyway" reads as
+# a recovered, non-fatal warning, not a crash by itself. Treated as a
+# second circumstantial correlation input, same as RE_UDON_EXCEPTION --
+# see crasher_activity.py and main.py's _handle_crasher_signal_event.
+RE_MODEL_VALIDATION_WARNING = re.compile(r"UnityPackage: Model failed validation, returning anyway")
+
+# Confirmed against VRCX's ParseApplicationQuit -- the ONE line VRChat
+# writes on a clean shutdown. Its ABSENCE right before the log goes
+# silent for good is the actual crash tell (see main.py's
+# _check_for_silent_crash), not this line's presence.
+RE_APPLICATION_QUIT = re.compile(r"VRCApplication: (?:OnApplicationQuit|HandleApplicationQuit) at ")
 
 # Every line VRChat writes starts with its own timestamp, e.g.
 # "2026.08.04 06:22:53 Debug      -  [Behaviour] OnPlayerJoined ...". This
@@ -214,6 +230,16 @@ def parse_line(line: str) -> Optional[LogEvent]:
         if m:
             return LogEvent(kind="udon_exception", timestamp=timestamp)
 
+    elif "UnityPackage: Model failed validation, returning anyway" in line:
+        m = RE_MODEL_VALIDATION_WARNING.search(line)
+        if m:
+            return LogEvent(kind="model_validation_warning", timestamp=timestamp)
+
+    elif "VRCApplication:" in line and "ApplicationQuit at " in line:
+        m = RE_APPLICATION_QUIT.search(line)
+        if m:
+            return LogEvent(kind="application_quit", timestamp=timestamp)
+
     return None
 
 
@@ -237,6 +263,16 @@ class LogWatcher:
         self.path = path
         self._file_position = 0  # how many bytes we've already read
 
+        # Updated on ANY new lines read, not just ones that parse into a
+        # LogEvent -- most log lines don't match anything we care about,
+        # but their mere presence proves VRChat is still alive and
+        # logging normally. main.py's silence detector reads this
+        # directly (see _check_for_silent_crash) rather than needing
+        # poll()'s return value to say more than it already does.
+        # Starts at construction time, not None -- "haven't polled yet"
+        # shouldn't look identical to "the log has genuinely gone quiet."
+        self.last_line_read_at = datetime.now()
+
         # If the file already has content when we start (e.g. you launch
         # QuickMOD after you're already in a world), jump to the end so we
         # don't replay the whole session's history as "new" events.
@@ -257,6 +293,9 @@ class LogWatcher:
             f.seek(self._file_position)
             new_lines = f.readlines()
             self._file_position = f.tell()
+
+        if new_lines:
+            self.last_line_read_at = datetime.now()
 
         for line in new_lines:
             event = parse_line(line)

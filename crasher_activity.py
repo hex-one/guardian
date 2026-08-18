@@ -37,11 +37,13 @@ class CrasherCandidate:
 @dataclass
 class CrasherFlag:
     flag_id: str
-    observed_at: str          # ISO 8601, local time -- when the Udon exception itself fired
+    observed_at: str          # ISO 8601, local time -- when the triggering signal itself fired
     world_id: str
     instance_id: str
     observed_by: str
     candidates: list          # list of CrasherCandidate -- more than one means genuinely ambiguous, not "pick one"
+    signal: str = "udon_exception"       # "udon_exception" | "model_validation_warning" | "crash_after_validation_warning"
+    confidence: str = "circumstantial"   # "circumstantial" | "strong" -- see main.py's _flag_silent_crash for what earns "strong"
 
 
 def _make_flag_id(observed_at: str, world_id: str, instance_id: str) -> str:
@@ -62,6 +64,11 @@ def load_flags() -> list[CrasherFlag]:
         flags.append(CrasherFlag(
             flag_id=item["flag_id"], observed_at=item["observed_at"], world_id=item["world_id"],
             instance_id=item["instance_id"], observed_by=item["observed_by"], candidates=candidates,
+            # .get() with defaults -- flags saved before these fields existed
+            # just read back as ordinary circumstantial udon-exception flags,
+            # which is exactly what they were at the time.
+            signal=item.get("signal", "udon_exception"),
+            confidence=item.get("confidence", "circumstantial"),
         ))
     return flags
 
@@ -71,7 +78,8 @@ def save_flags(flags: list[CrasherFlag]):
     CRASHER_ACTIVITY_FILE.write_text(json.dumps([asdict(f) for f in flags], indent=2))
 
 
-def record_flag(candidates: list, world_id: str, instance_id: str, observed_by: str, observed_at: str) -> CrasherFlag:
+def record_flag(candidates: list, world_id: str, instance_id: str, observed_by: str, observed_at: str,
+                 signal: str = "udon_exception", confidence: str = "circumstantial") -> CrasherFlag:
     """
     `candidates` is a list of CrasherCandidate -- every player who
     switched avatars inside the correlation window, not just the
@@ -86,6 +94,8 @@ def record_flag(candidates: list, world_id: str, instance_id: str, observed_by: 
         instance_id=instance_id or "",
         observed_by=observed_by,
         candidates=candidates,
+        signal=signal,
+        confidence=confidence,
     )
     flags = [f for f in load_flags() if f.flag_id != flag.flag_id]
     flags.append(flag)
