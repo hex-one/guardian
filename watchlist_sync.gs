@@ -26,6 +26,11 @@
  *   (predator/stalker/troll are treated as genuine threats and blink in
  *   Guardian's player list; poi/vip/creator are informational tags and
  *   just show steadily -- see watchlist_categories.py on the Guardian side)
+ *
+ * A SECOND tab, "VoteKicks", tracks vote-kicks Guardian observes in the
+ * VRChat log -- see the comment above SHEET_NAME_VOTE_KICKS below for
+ * its header row. Same script, same deployment, same two Config URLs;
+ * just add the tab and this file already knows what to do with it.
  */
 
 // ---- EDIT THIS: paste the VRChat user IDs (usr_...) of whoever is
@@ -51,6 +56,32 @@ var COL_REVIEWED_AT = 8;
 var COL_LAST_VALIDATED_AT = 9;
 var COL_CATEGORY = 10;
 
+// ---- VoteKicks: a second tab on the SAME spreadsheet, riding along on
+// the SAME deployed script and the SAME two Config URLs -- no separate
+// setup needed for this one. Add a tab named exactly "VoteKicks" to
+// this spreadsheet with this header row before using the feature:
+//
+//   event_id | target_user_id | target_display_name | world_id | instance_id | status | initiated_at | succeeded_at | submitted_by | submitted_at
+//
+// status is one of: initiated, succeeded
+// event_id is computed CLIENT-SIDE (Guardian's vote_kicks.py) from
+// world+instance+target+minute, so two different Guardians who watched
+// the SAME real vote independently arrive at the SAME event_id without
+// ever talking to each other directly -- that's what makes the
+// first-come-first-served rejection below actually work.
+var SHEET_NAME_VOTE_KICKS = "VoteKicks";
+
+var VK_COL_EVENT_ID = 1;
+var VK_COL_TARGET_USER_ID = 2;
+var VK_COL_TARGET_DISPLAY_NAME = 3;
+var VK_COL_WORLD_ID = 4;
+var VK_COL_INSTANCE_ID = 5;
+var VK_COL_STATUS = 6;
+var VK_COL_INITIATED_AT = 7;
+var VK_COL_SUCCEEDED_AT = 8;
+var VK_COL_SUBMITTED_BY = 9;
+var VK_COL_SUBMITTED_AT = 10;
+
 
 function doPost(e) {
   var data = JSON.parse(e.postData.contents);
@@ -60,6 +91,7 @@ function doPost(e) {
   if (action === "review") return handleReview(data);
   if (action === "update_name") return handleUpdateName(data);
   if (action === "request_removal") return handleRequestRemoval(data);
+  if (action === "submit_vote_kick") return handleSubmitVoteKick(data);
 
   return respond({ status: "error", message: "Unknown action: " + action });
 }
@@ -193,6 +225,66 @@ function handleUpdateName(data) {
   }
 
   return respond({ status: "error", message: "User ID not found on the sheet." });
+}
+
+
+function handleSubmitVoteKick(data) {
+  // First come, first served -- one row per real-world event_id.
+  // Reporting the SAME status twice (two Guardians who both caught the
+  // initiation, or both caught the success independently) is a race
+  // and loses to whoever's request landed here first. Reporting a NEW
+  // status for an event that's already on the sheet (the initiation
+  // was recorded earlier, this call is the success catching it up) is
+  // real new information, not a race -- that one updates the row
+  // instead of getting rejected.
+  var sheet = getVoteKicksSheet();
+  var rows = sheet.getDataRange().getValues();
+  var now = new Date().toISOString();
+
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][VK_COL_EVENT_ID - 1] === data.event_id) {
+      var rowNum = i + 1;
+      var existingStatus = rows[i][VK_COL_STATUS - 1];
+
+      if (data.status === "succeeded" && existingStatus !== "succeeded") {
+        sheet.getRange(rowNum, VK_COL_STATUS).setValue("succeeded");
+        sheet.getRange(rowNum, VK_COL_SUCCEEDED_AT).setValue(data.succeeded_at || now);
+        if (data.target_user_id && !rows[i][VK_COL_TARGET_USER_ID - 1]) {
+          sheet.getRange(rowNum, VK_COL_TARGET_USER_ID).setValue(data.target_user_id);
+        }
+        return respond({ status: "success" });
+      }
+
+      return respond({
+        status: "duplicate",
+        message: "Another Guardian already submitted this event.",
+      });
+    }
+  }
+
+  sheet.appendRow([
+    data.event_id,
+    data.target_user_id || "",
+    data.target_display_name || "",
+    data.world_id || "",
+    data.instance_id || "",
+    data.status || "initiated",
+    data.initiated_at || "",
+    data.succeeded_at || "",
+    data.submitted_by || "",
+    now,
+  ]);
+
+  return respond({ status: "success" });
+}
+
+
+function getVoteKicksSheet() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_VOTE_KICKS);
+  if (!sheet) {
+    throw new Error('No tab named "' + SHEET_NAME_VOTE_KICKS + '" found. See SETUP.md.');
+  }
+  return sheet;
 }
 
 

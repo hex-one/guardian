@@ -7,6 +7,12 @@ configured Discord channel as an attachment, and (if Google Sheets sync
 is configured in Config) pull the shared approved list and submit new
 candidates to it for review, plus a Review Queue for approvers. The
 whole team's memory, in one window.
+
+Also holds the "VoteKicks" tab -- a separate room in the same house,
+same idea as Watchlist itself (local record + optional shared sync),
+just for vote-kick events instead of watched players. See vote_kicks.py,
+vote_kick_submit.py, and sheets_vote_kicks.py for the half of this that
+lives outside the UI.
 """
 
 import json
@@ -29,6 +35,8 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QApplication,
     QFrame,
+    QTabWidget,
+    QWidget,
 )
 
 import aar
@@ -40,6 +48,8 @@ import discord_targets
 import discord_api
 import watchlist_sync_settings
 import sheets_watchlist
+import vote_kicks
+import sheets_vote_kicks
 from glow import apply_glow, PRIMARY, DANGER, SUCCESS, WARNING, INFO, DISCORD
 
 
@@ -58,6 +68,7 @@ class WatchlistDialog(QDialog):
         self._build_ui()
         self._reload()
         self._reload_review_queue()
+        self._reload_vote_kicks()
 
     def _hline(self) -> QFrame:
         f = QFrame()
@@ -65,7 +76,18 @@ class WatchlistDialog(QDialog):
         return f
 
     def _build_ui(self):
-        outer = QVBoxLayout(self)
+        window_layout = QVBoxLayout(self)
+        tabs = QTabWidget()
+        tabs.setObjectName("watchlistTabs")
+        window_layout.addWidget(tabs)
+
+        watchlist_page = QWidget()
+        outer = QVBoxLayout(watchlist_page)
+        tabs.addTab(watchlist_page, "Watchlist")
+
+        votekicks_page = QWidget()
+        tabs.addTab(votekicks_page, "VoteKicks")
+        self._build_vote_kicks_tab(votekicks_page)
 
         header = QLabel(
             "Players flagged for extra attention. If one shows up in an instance, "
@@ -642,3 +664,103 @@ class WatchlistDialog(QDialog):
             self.status_label.setText(f'Posted to "{target.name}".')
         else:
             self.status_label.setText(f"Failed to post: {result.error_message}")
+
+    # -- VoteKicks tab -------------------------------------------------------
+
+    def _build_vote_kicks_tab(self, page: QWidget):
+        layout = QVBoxLayout(page)
+
+        header = QLabel(
+            "Vote-kicks Guardian has personally observed in the log -- who was targeted, "
+            "where, and whether the vote succeeded. There's no \"who started it\" column: "
+            "VRChat's own log never exposes that to any client, so it isn't something this "
+            "list can show you either."
+        )
+        header.setObjectName("voteKicksHeader")
+        header.setWordWrap(True)
+        layout.addWidget(header)
+
+        self.vote_kicks_list = QListWidget()
+        self.vote_kicks_list.setObjectName("voteKicksList")
+        layout.addWidget(self.vote_kicks_list)
+
+        self.vote_kicks_status_label = QLabel("")
+        self.vote_kicks_status_label.setObjectName("voteKicksStatus")
+        self.vote_kicks_status_label.setWordWrap(True)
+        layout.addWidget(self.vote_kicks_status_label)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+
+        self.vote_kicks_sync_button = QPushButton("Sync Now")
+        self.vote_kicks_sync_button.setObjectName("voteKicksSyncButton")
+        self.vote_kicks_sync_button.setToolTip("Pull the shared VoteKicks list and merge it in below the local events")
+        apply_glow(self.vote_kicks_sync_button, INFO)
+        self.vote_kicks_sync_button.clicked.connect(self._sync_vote_kicks)
+        button_row.addWidget(self.vote_kicks_sync_button)
+
+        layout.addLayout(button_row)
+
+    def _format_vote_kick_row(self, target_display_name: str, status: str, initiated_at: str,
+                               succeeded_at: str, world_id: str, instance_id: str, source: str) -> str:
+        where = f"world {world_id}" + (f" (instance {instance_id})" if instance_id else "") if world_id else "unknown instance"
+        if status == "succeeded":
+            when = succeeded_at or initiated_at
+            outcome = "✅ Succeeded"
+        else:
+            when = initiated_at
+            outcome = "⏳ Initiated"
+        return f"{outcome} — {target_display_name} — {when} — {where} [{source}]"
+
+    def _reload_vote_kicks(self):
+        self.vote_kicks_list.clear()
+        events = vote_kicks.load_events()
+        if not events:
+            self.vote_kicks_status_label.setText("No locally-observed vote-kick events yet.")
+            return
+        for event in sorted(events, key=lambda e: e.initiated_at or e.succeeded_at, reverse=True):
+            label = self._format_vote_kick_row(
+                event.target_display_name, event.status, event.initiated_at, event.succeeded_at,
+                event.world_id, event.instance_id, "local",
+            )
+            self.vote_kicks_list.addItem(QListWidgetItem(label))
+        self.vote_kicks_status_label.setText(f"{len(events)} locally-observed event(s).")
+
+    def _sync_vote_kicks(self):
+        sync_settings = watchlist_sync_settings.load_settings()
+        if not watchlist_sync_settings.is_configured():
+            QMessageBox.information(
+                self, "Sync not configured",
+                "Set the Sheet CSV URL and Apps Script Web App URL in Config first "
+                "(account menu → your username → Config → Watchlist Sync). "
+                "VoteKicks rides on the same two URLs as the Watchlist -- just add a "
+                "\"VoteKicks\" tab to the same spreadsheet. See SETUP.md.",
+            )
+            return
+
+        self.vote_kicks_sync_button.setEnabled(False)
+        self.vote_kicks_status_label.setText("Pulling the shared VoteKicks list...")
+        QApplication.processEvents()
+
+        result = sheets_vote_kicks.fetch_events(sync_settings.csv_url)
+        self.vote_kicks_sync_button.setEnabled(True)
+
+        if result.status != "success":
+            self.vote_kicks_status_label.setText(f"Sync failed: {result.error_message}")
+            return
+
+        self._reload_vote_kicks()
+        local_ids = {e.event_id for e in vote_kicks.load_events()}
+        shared_only = [e for e in result.entries if e.event_id not in local_ids]
+        for e in shared_only:
+            label = self._format_vote_kick_row(
+                e.target_display_name, e.status, e.initiated_at, e.succeeded_at,
+                e.world_id, e.instance_id, f"shared, reported by {e.submitted_by}",
+            )
+            self.vote_kicks_list.addItem(QListWidgetItem(label))
+
+        total = len(vote_kicks.load_events()) + len(shared_only)
+        self.vote_kicks_status_label.setText(
+            f"{len(vote_kicks.load_events())} local event(s), {len(shared_only)} more from the shared "
+            f"list not seen locally — {total} shown."
+        )

@@ -54,7 +54,7 @@ from dependency_check import ensure_dependencies
 ensure_dependencies()
 
 from PySide6.QtCore import QTimer, Qt, QUrl, QEvent, Signal
-from PySide6.QtGui import QColor, QCursor, QDesktopServices, QPixmap, QFont, QIcon
+from PySide6.QtGui import QColor, QCursor, QDesktopServices, QPixmap, QFont, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -105,6 +105,9 @@ import watchlist_categories
 import watchlist_submit
 import watchlist_sync_settings
 import sheets_watchlist
+import vote_kicks
+import vote_kick_submit
+from votes_dialog import VotesDialog
 from icon_row_delegate import IconRowDelegate, GROUP_ICON_ROLE, GROUP_ICON_LABELS_ROLE
 
 POLL_INTERVAL_MS = 1000               # how often we check the log file for new lines -- keep the pulse steady
@@ -350,6 +353,11 @@ class QuickModWindow(QMainWindow):
             "Show WL", lambda: self._show_aar_category("watchlist", "Watchlist Report")
         )
         show_wl_action.setToolTip("Show Watchlist actions from the AAR")
+
+        show_vk_action = self.reports_menu.addAction(
+            "Show Vote Kicks", lambda: self._show_aar_category("vote_kicks", "Vote Kicks Report")
+        )
+        show_vk_action.setToolTip("Show observed vote-kick events from the AAR")
 
         # setCornerWidget is Qt's actual supported mechanism for placing a
         # widget in the corner of a menu bar -- more reliable across
@@ -702,6 +710,13 @@ class QuickModWindow(QMainWindow):
         watchlist_action = menu.addAction(watchlist_label, lambda: self._on_action("WatchList", player_user_id, player_name))
         watchlist_action.setToolTip("Toggle this player's watchlist membership")
 
+        votes_action = menu.addAction("Votes", lambda: self._on_action("Votes", player_user_id, player_name))
+        if vote_kicks.get_events_for_target(player_user_id, player_name):
+            votes_action.setToolTip("View known vote-kick events for this player")
+        else:
+            votes_action.setEnabled(False)
+            votes_action.setToolTip("No known vote-kick events for this player.")
+
         return menu
 
     def _on_action(self, action_name: str, player_user_id: str, player_name: str):
@@ -768,6 +783,10 @@ class QuickModWindow(QMainWindow):
                 )
                 QMessageBox.information(self, "Watchlist", status)
                 self._refresh_list()
+
+        elif action_name == "Votes":
+            dialog = VotesDialog(player_user_id, player_name)
+            dialog.exec()
 
         elif action_name == "Kick":
             if not self.current_group_id:
@@ -1517,6 +1536,30 @@ class QuickModWindow(QMainWindow):
         QApplication.clipboard().setText(url)
         QToolTip.showText(QCursor.pos(), "Copied web link!", self.status_label)
 
+    def _vote_kick_checkmark_pixmap(self) -> QPixmap:
+        """A small red checkmark, drawn once and cached -- no image asset
+        needed for something this simple. Reuses the same right-edge
+        icon-row mechanism the group badges already use (see
+        icon_row_delegate.py), just with a plain hand-drawn glyph
+        instead of a fetched group icon."""
+        if not hasattr(self, "_vote_kick_checkmark_cache"):
+            size = IconRowDelegate.ICON_SIZE
+            pixmap = QPixmap(size, size)
+            pixmap.fill(Qt.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            pen = QPen(QColor("#E8352B"))
+            pen.setWidth(2)
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(pen)
+            # A simple check mark path, scaled to the icon box.
+            painter.drawLine(int(size * 0.18), int(size * 0.55), int(size * 0.42), int(size * 0.78))
+            painter.drawLine(int(size * 0.42), int(size * 0.78), int(size * 0.85), int(size * 0.22))
+            painter.end()
+            self._vote_kick_checkmark_cache = pixmap
+        return self._vote_kick_checkmark_cache
+
     def _get_group_icon(self, group_id: str, icon_url: str) -> tuple:
         """
         Returns (QPixmap or None, data-uri string or None) for a group's
@@ -1719,7 +1762,45 @@ class QuickModWindow(QMainWindow):
                 entry.status = "departed"
                 entry.departed_at = event.timestamp or datetime.now()
 
+        elif event.kind in ("vote_kick_initiated", "vote_kick_succeeded"):
+            self._handle_vote_kick_event(event)
+
         self._refresh_list()
+
+    def _resolve_player_id_by_name(self, display_name: str) -> str:
+        """VRChat's vote-kick log lines only ever give a display name,
+        never a user ID -- this cross-references whoever's currently (or
+        was recently) tracked in this instance to attach a real user_id
+        where possible. Returns "" if nobody matches (they may have
+        already left before we got here, or the name just doesn't line
+        up with anyone we've seen)."""
+        for entry in self.players.values():
+            if entry.display_name == display_name:
+                return entry.user_id if entry.user_id.startswith("usr_") else ""
+        return ""
+
+    def _handle_vote_kick_event(self, event):
+        observed_by = self.vrchat_client.display_name if self.vrchat_client else "unknown"
+        target_user_id = self._resolve_player_id_by_name(event.display_name)
+        timestamp = event.timestamp or datetime.now()
+
+        if event.kind == "vote_kick_initiated":
+            vk_event = vote_kicks.record_initiated(
+                event.display_name, target_user_id, self.current_world_id, self.current_instance_id,
+                timestamp, observed_by,
+            )
+        else:
+            vk_event = vote_kicks.record_succeeded(
+                event.display_name, target_user_id, self.current_world_id, self.current_instance_id,
+                timestamp, observed_by,
+            )
+
+        # Submission (and the AAR log either way) can hit the network --
+        # doesn't need to block the log-poll loop, so it runs in the
+        # background same as the group-mod cache scan does elsewhere.
+        threading.Thread(
+            target=vote_kick_submit.submit_vote_kick_event, args=(self.vrchat_client, vk_event), daemon=True,
+        ).start()
 
     def _refresh_list(self):
         self.player_list.clear()
@@ -1734,6 +1815,7 @@ class QuickModWindow(QMainWindow):
 
         entries = list(self.players.values())
         watched_entries = watchlist.get_watched_entries()
+        vote_kick_ids, vote_kick_names = vote_kicks.get_targets_with_events()
 
         # Each mode's "natural" (ascending=True) direction -- toggled to
         # the opposite when the same category was just re-picked.
@@ -1825,6 +1907,18 @@ class QuickModWindow(QMainWindow):
             labels = []  # index-aligned with pixmaps -- each icon's hover tooltip
             seen_group_ids = set()
             player_group_ids = self._player_group_ids_cache.get(entry.user_id) or []
+
+            # Small red checkmark -- flags a player with known vote-kick
+            # event(s) attached to them (see vote_kicks.py). Drawn first
+            # so it sits leftmost among the trailing icons, ahead of
+            # group badges. Right-click → Votes shows the actual history.
+            has_vote_kick_history = (
+                (entry.user_id.startswith("usr_") and entry.user_id in vote_kick_ids)
+                or entry.display_name in vote_kick_names
+            )
+            if has_vote_kick_history:
+                pixmaps.append(self._vote_kick_checkmark_pixmap())
+                labels.append("Has known vote-kick event(s) — right-click → Votes")
 
             if self.current_group_id and self.current_group_icon_pixmap and self.current_group_id in player_group_ids:
                 pixmaps.append(self.current_group_icon_pixmap)

@@ -81,7 +81,8 @@ class LogEvent:
     A simple container for "something happened" -- we fill in `kind` and
     whichever other fields are relevant, and leave the rest as None.
 
-    kind is one of: "instance_change", "player_join", "player_left"
+    kind is one of: "instance_change", "player_join", "player_left",
+    "vote_kick_initiated", "vote_kick_succeeded"
     """
     kind: str
     display_name: Optional[str] = None
@@ -117,6 +118,18 @@ RE_PLAYER_LEFT = re.compile(r"OnPlayerLeft (?P<name>.+?)(?: \((?P<uid>usr_[a-f0-
 # those segments away -- \S+ (non-whitespace) is what actually captures
 # the whole thing.
 RE_INSTANCE_JOIN = re.compile(r"Joining (?P<world>wrld_[a-f0-9\-]+):(?P<instance>\S+)")
+
+# Vote-kick lines, both under the [ModerationManager] tag:
+#   [ModerationManager] A vote kick has been initiated against SomeName, do you agree?
+#   [ModerationManager] Vote to kick SomeName succeeded
+#
+# Confirmed against VRCX's own open-source LogWatcher.cs (ParseVoteKick
+# Initiation/ParseVoteKickSuccess), not guessed -- and confirmed there's
+# NOTHING in VRChat's log anywhere that names who started a vote. Only
+# the target and the outcome are ever written down. We track exactly
+# that, nothing invented to fill the gap.
+RE_VOTE_KICK_INITIATED = re.compile(r"A vote kick has been initiated against (?P<name>.+?), do you agree\?")
+RE_VOTE_KICK_SUCCEEDED = re.compile(r"Vote to kick (?P<name>.+?) succeeded")
 
 # Every line VRChat writes starts with its own timestamp, e.g.
 # "2026.08.04 06:22:53 Debug      -  [Behaviour] OnPlayerJoined ...". This
@@ -162,6 +175,16 @@ def parse_line(line: str) -> Optional[LogEvent]:
         if m:
             return LogEvent(kind="instance_change", world_id=m.group("world"), instance_id=m.group("instance"),
                              timestamp=timestamp)
+
+    elif "vote kick has been initiated" in line:
+        m = RE_VOTE_KICK_INITIATED.search(line)
+        if m:
+            return LogEvent(kind="vote_kick_initiated", display_name=m.group("name"), timestamp=timestamp)
+
+    elif "Vote to kick" in line and "succeeded" in line:
+        m = RE_VOTE_KICK_SUCCEEDED.search(line)
+        if m:
+            return LogEvent(kind="vote_kick_succeeded", display_name=m.group("name"), timestamp=timestamp)
 
     return None
 

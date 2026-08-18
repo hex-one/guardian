@@ -48,6 +48,7 @@ ACTION_CATEGORIES = {
         "watchlist_add", "watchlist_remove", "watchlist_removal_request",
         "watchlist_approved", "watchlist_rejected", "watchlist_cleared", "watchlist_removed",
     },
+    "vote_kicks": {"vote_kick_initiated", "vote_kick_succeeded"},
 }
 
 

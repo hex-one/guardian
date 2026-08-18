@@ -115,6 +115,35 @@ with `status = pending`. An approver can then either edit that row's
 `reviewed_by`/`reviewed_at` automatically) use the **Review Queue**
 inside Guardian's Watchlist window.
 
+## 5. Optional: add the VoteKicks tab
+
+Vote-kick tracking (Guardian's "VoteKicks" tab, and the red checkmark
+next to a player who's had one) rides on the exact same Sheet, script,
+and two Config URLs as the Watchlist above — nothing new to deploy, no
+second script, no second pair of URLs. Just give the shared list a
+second room:
+
+1. In the same Sheet, add a new tab named exactly **`VoteKicks`**.
+2. In row 1 of that tab, add these column headers, in this exact order:
+
+   ```
+   event_id | target_user_id | target_display_name | world_id | instance_id | status | initiated_at | succeeded_at | submitted_by | submitted_at
+   ```
+
+3. That's it — the Apps Script code already deployed in step 2 above
+   (from the current `watchlist_sync.gs`) already knows how to write to
+   this tab. If you deployed the script BEFORE this feature existed,
+   re-paste the current `watchlist_sync.gs` into the Apps Script editor
+   and redeploy (**Deploy → Manage deployments → edit → New version →
+   Deploy** — see the note in step 2 above about why "just saving"
+   isn't enough).
+
+`status` is one of `initiated` (a vote is/was underway, outcome not yet
+known) or `succeeded` (the vote passed). There's deliberately no
+`initiated_by` column — VRChat's own log never exposes who started a
+vote-kick to any client, Guardian included, so there's nothing to write
+there even if the schema had room for it.
+
 ## How the pieces fit together
 
 - **Guardian reads** the sheet via the plain CSV link — no login, no
