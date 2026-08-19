@@ -16,19 +16,23 @@ nothing more; the caveat text says so plainly rather than letting a
 correlation read as a verdict, even for the "strong"-confidence entries.
 """
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
 )
 
+import aar
 import crasher_activity
-from glow import DANGER, WARNING
+from glow import apply_glow, DANGER, WARNING
 
 _SIGNAL_LABELS = {
     "udon_exception": "Udon exception",
@@ -39,12 +43,15 @@ _SIGNAL_LABELS = {
 
 
 class CrasherActivityDialog(QDialog):
-    def __init__(self, player_user_id: str, player_name: str):
+    def __init__(self, vrchat_client, player_user_id: str, player_name: str):
         super().__init__()
         self.setObjectName("CrasherActivityDialog")
         self.setWindowTitle(f"Crasher Activity — {player_name}")
-        self.resize(460, 380)
+        self.resize(460, 420)
 
+        # Optional only so this dialog can still be constructed/tested
+        # without a live session; main.py always passes the real client.
+        self.vrchat_client = vrchat_client
         self.player_user_id = player_user_id
         self.player_name = player_name
 
@@ -66,7 +73,11 @@ class CrasherActivityDialog(QDialog):
 
         self.flag_list = QListWidget()
         self.flag_list.setObjectName("crasherActivityFlagList")
-        self.flag_list.setToolTip("Possible crasher activity flags involving this player, most recent last")
+        self.flag_list.setToolTip(
+            "Possible crasher activity flags involving this player, most recent last -- "
+            "select one or more and Clear Selected to dismiss them"
+        )
+        self.flag_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         outer.addWidget(self.flag_list)
 
         self.status_label = QLabel("")
@@ -75,6 +86,17 @@ class CrasherActivityDialog(QDialog):
         outer.addWidget(self.status_label)
 
         button_row = QHBoxLayout()
+
+        self.clear_button = QPushButton("Clear Selected")
+        self.clear_button.setObjectName("crasherActivityClearButton")
+        self.clear_button.setToolTip(
+            f"Dismiss the selected event(s) for {self.player_name} -- doesn't affect other "
+            "players an ambiguous flag also named"
+        )
+        apply_glow(self.clear_button, DANGER)
+        self.clear_button.clicked.connect(self._clear_selected)
+        button_row.addWidget(self.clear_button)
+
         button_row.addStretch()
 
         close_button = QPushButton("Close")
@@ -118,6 +140,7 @@ class CrasherActivityDialog(QDialog):
         strong_count = 0
         for flag in sorted(flags, key=lambda f: f.observed_at):
             item = QListWidgetItem(self._format_flag(flag))
+            item.setData(Qt.UserRole, flag)
             if flag.confidence == "strong":
                 item.setForeground(QColor(DANGER))
                 strong_count += 1
@@ -127,3 +150,41 @@ class CrasherActivityDialog(QDialog):
 
         strong_note = f", {strong_count} of them strong-confidence" if strong_count else ""
         self.status_label.setText(f"{len(flags)} flag(s){strong_note} — review before acting on any of them.")
+
+    def _clear_selected(self):
+        selected = self.flag_list.selectedItems()
+        if not selected:
+            self.status_label.setText("Select at least one event to clear.")
+            return
+
+        flags = [item.data(Qt.UserRole) for item in selected]
+        confirm = QMessageBox.question(
+            self, "Clear Crasher Activity",
+            f"Dismiss {len(flags)} event(s) for {self.player_name}? Any other player an "
+            "ambiguous flag also named keeps seeing it until they clear it too.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        moderator = self.vrchat_client.display_name if self.vrchat_client else "unknown"
+        cleared = 0
+        for flag in flags:
+            if crasher_activity.dismiss_flag_for_target(flag.flag_id, self.player_user_id, self.player_name):
+                cleared += 1
+
+        if cleared:
+            signal_label = _SIGNAL_LABELS.get(flags[0].signal, flags[0].signal) if len(flags) == 1 else None
+            details = (
+                f"Dismissed a possible-crasher flag ({signal_label}, {flags[0].observed_at})"
+                if signal_label else f"Dismissed {cleared} possible-crasher flag(s)"
+            )
+            aar.save_entry(aar.AAREntry(
+                timestamp=aar.now_iso(), moderator=moderator, action="crasher_activity_dismissed",
+                target_display_name=self.player_name, target_user_id=self.player_user_id,
+                details=f"{details} for {self.player_name}. Circumstantial to begin with -- reviewed and dismissed.",
+                success=True,
+            ))
+
+        self._reload()
+        self.status_label.setText(f"Cleared {cleared} of {len(flags)} selected.")

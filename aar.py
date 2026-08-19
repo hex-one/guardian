@@ -49,7 +49,7 @@ ACTION_CATEGORIES = {
         "watchlist_approved", "watchlist_rejected", "watchlist_cleared", "watchlist_removed",
     },
     "vote_kicks": {"vote_kick_initiated", "vote_kick_succeeded"},
-    "crasher_activity": {"crasher_activity_flag"},
+    "crasher_activity": {"crasher_activity_flag", "crasher_activity_dismissed"},
 }
 
 

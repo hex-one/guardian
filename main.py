@@ -863,8 +863,9 @@ class GuardianWindow(QMainWindow):
             dialog.exec()
 
         elif action_name == "CrasherActivity":
-            dialog = CrasherActivityDialog(player_user_id, player_name)
+            dialog = CrasherActivityDialog(self.vrchat_client, player_user_id, player_name)
             dialog.exec()
+            self._refresh_list()  # in case clearing their last flag should drop the amber triangle
 
         elif action_name == "Kick":
             if not self.current_group_id:

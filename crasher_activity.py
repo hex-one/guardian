@@ -117,6 +117,39 @@ def get_flags_for_target(user_id: str, display_name: str = "") -> list[CrasherFl
     return matches
 
 
+def dismiss_flag_for_target(flag_id: str, user_id: str, display_name: str = "") -> bool:
+    """
+    Removes just THIS player from a flag's candidate list -- not the
+    whole flag. An ambiguous flag naming several players is a separate,
+    unreviewed question for each of them; a mod dismissing it from one
+    player's dialog shouldn't silently also clear it for whoever else
+    was implicated alongside them. The flag disappears entirely once
+    its last candidate is gone. Returns True if something was actually
+    removed, False if this flag/player combination wasn't found (a
+    stale reference -- someone else already cleared it, say).
+    """
+    flags = load_flags()
+    changed = False
+    remaining_flags = []
+    for flag in flags:
+        if flag.flag_id != flag_id:
+            remaining_flags.append(flag)
+            continue
+        kept_candidates = [
+            c for c in flag.candidates
+            if not ((user_id and c.user_id == user_id) or (not c.user_id and display_name and c.display_name == display_name))
+        ]
+        if len(kept_candidates) != len(flag.candidates):
+            changed = True
+        if kept_candidates:
+            flag.candidates = kept_candidates
+            remaining_flags.append(flag)
+        # else: that was the last candidate -- the flag goes with it
+    if changed:
+        save_flags(remaining_flags)
+    return changed
+
+
 def get_targets_with_flags() -> tuple:
     """Returns (user_ids, unresolved_display_names) across every
     candidate in every flag -- same two-set shape as vote_kicks.py's
