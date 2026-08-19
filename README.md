@@ -2,14 +2,22 @@
 
 Hey. Jasper Hex here.
 
-Somewhere between a meditation session and a 3am debugging binge, this
-became Guardian — a moderation tool for VRChat group instances that I
-built the way I build everything: quietly, thoroughly, with the person
-actually using it kept in mind the whole time. Moderation shouldn't
-feel like triage. It should feel like tending something you care about.
-Guardian watches your instance in real time and puts Note / Grp Kick /
-Grp Ban one right-click away — no alt-tabbing to a browser mid-incident,
-no losing your place, no scrambling.
+In Ascended, a mod goes by one name: Guardian. So when this app needed
+one, there wasn't much of a question. Somewhere between a meditation
+session and a 3am debugging binge, this became Guardian — a moderation
+tool for VRChat group instances that I built the way I build
+everything: quietly, thoroughly, with the person actually using it
+kept in mind the whole time. Moderation shouldn't feel like triage. It
+should feel like tending something you care about. Guardian watches
+your instance in real time and puts Note / Grp Kick / Grp Ban one
+right-click away — no alt-tabbing to a browser mid-incident, no losing
+your place, no scrambling.
+
+Built and given away free, for the Ascended VRChat group's own mod
+team, so their day-to-day got a little easier instead of a little
+harder. It's branded ours, but there's nothing Ascended-only about
+what it actually does — any VRChat group is welcome to run this to
+moderate their own community, same as we do.
 
 Old-school gamer instinct runs underneath all of it: back before
 dial-up was a sure thing, you didn't get to half-finish a build and

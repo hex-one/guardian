@@ -25,6 +25,11 @@ from glow import apply_glow, PRIMARY, INFO, DISCORD
 APP_CREDITS_TEXT = (
     "Hey. I'm Jasper Hex -- made this, alongside Ryy, for the Ascended "
     "VRChat community.\n\n"
+    "In Ascended, a mod is called a Guardian -- that's where the name "
+    "comes from. Built free, for our own mod team, so their day-to-day "
+    "got a little easier instead of a little harder. It's branded ours, "
+    "but any VRChat group is welcome to run this for their own "
+    "community too.\n\n"
     "Part purple wolf who meditates by the lake at 3am, part gamer who "
     "cut his teeth before dial-up was a sure thing -- both halves show "
     "up in how this was built: patient where it needs to be, fast "
@@ -50,7 +55,7 @@ class AboutDialog(QDialog):
         super().__init__()
         self.setObjectName("AboutDialog")
         self.setWindowTitle("About / Support")
-        self.resize(360, 540)
+        self.resize(360, 600)
         self._build_ui()
 
     def _build_ui(self):
