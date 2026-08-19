@@ -10,7 +10,7 @@ successful.
 BEGINNER NOTES:
 
 - This is a QDialog (a popup window), not the main app window. main.py
-  shows this FIRST, and only opens the main QuickMOD window once this
+  shows this FIRST, and only opens the main Guardian window once this
   dialog reports a successful login.
 
 - QStackedWidget is a container that holds multiple "pages" of widgets but

@@ -1,4 +1,4 @@
-# Guardian — v0.1 (formerly "Ascended QuickMOD")
+# Ascended Guardian
 
 Hey. Jasper Hex here.
 
@@ -45,7 +45,7 @@ thing, not a promise.
   login (password, then a 2FA code if your account has that on), and
   saves your session afterward so you're not re-logging-in every
   launch. **Never saves your password** — only the session cookies
-  VRChat gives back, in `~/.ascended_quickmod/session.json` on your own
+  VRChat gives back, in `~/.ascended_guardian/session.json` on your own
   PC. Treat that file like a saved password; it deserves the same
   respect. The `USER_AGENT` (app name + contact) is baked in here — no
   per-machine editing needed.
@@ -62,7 +62,7 @@ thing, not a promise.
   up properly.
 - `aar.py` — the "After Action Report" log. Every moderation action
   (note, kick, ban, unban) gets recorded locally in
-  `~/.ascended_quickmod/aar_log.json`, including failed attempts and
+  `~/.ascended_guardian/aar_log.json`, including failed attempts and
   temp-ban expiry info. Separate from VRChat's own note history — this
   is your team's own pullable record, the campaign log nobody can edit
   out from under you.
@@ -128,7 +128,7 @@ thing, not a promise.
   is a shortlist for the picker, not the last word on whether the
   action's actually allowed.
 - `temp_bans.py` — tracks active temp bans locally (who, which group,
-  when it expires) in `~/.ascended_quickmod/temp_bans.json`. Checked by
+  when it expires) in `~/.ascended_guardian/temp_bans.json`. Checked by
   two timers in `main.py`: a precise one retargeted at whichever ban
   expires soonest (plus a small buffer) every time the list changes —
   a ban placed, one unbanned early, one auto-expired, or the app
@@ -252,7 +252,7 @@ thing, not a promise.
   same no-group/no-permission rules.
 - `discord_targets.py` — local storage for Discord webhook targets the
   AAR report can be sent to, in
-  `~/.ascended_quickmod/discord_targets.json`. Each target is one
+  `~/.ascended_guardian/discord_targets.json`. Each target is one
   Incoming Webhook (Discord's lightweight, officially supported way to
   post into ONE specific channel — no bot needed). A webhook URL is
   created from that channel's own settings and IS the credential, so
@@ -588,7 +588,7 @@ for a frozen build (`sys.frozen`), since there's nothing to
 won't run without `_internal/` sitting next to it, same as a spellbook
 without its components. `build/` is safe to delete and regenerate.
 Local data (session, AAR log, watchlist, etc.) still lives in
-`~/.ascended_quickmod/` either way, same as running from source.
+`~/.ascended_guardian/` either way, same as running from source.
 
 This ships as a folder (`onedir`), not a single self-extracting exe
 (`onefile`) — see the next section for why.
@@ -626,7 +626,7 @@ straight than let you find out from a scary popup. Worth understanding
    about: Guardian **never saves your password anywhere** — see
    `vrchat_api.py` — only the session cookies VRChat's API hands back
    *after* a successful login, stored locally in
-   `~/.ascended_quickmod/session.json`. Treat that file like a saved
+   `~/.ascended_guardian/session.json`. Treat that file like a saved
    password, but Guardian itself never holds your actual password past
    the moment you type it into the login screen. Trust, once earned,
    still has to be handled carefully — that's the whole design.
@@ -735,8 +735,7 @@ and a promise Guardian couldn't keep wasn't worth keeping around.)
   nobody on the list is in the room, so this doesn't add ongoing
   overhead in the common case of an empty watchlist. No alarm rings in
   an empty room.
-- **AAR export header now reads "Guardian APP"** instead of the old
-  "Ascended QuickMOD" naming.
+- **AAR export header reads "Ascended Guardian."**
 - **Editing the Apps Script requires a redeploy, not just a save.**
   Google treats "save" and "make the live deployment actually run the
   new code" as two separate steps — after editing `watchlist_sync.gs`

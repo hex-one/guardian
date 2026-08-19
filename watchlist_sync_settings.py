@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
 
-SYNC_SETTINGS_FILE = Path.home() / ".ascended_quickmod" / "watchlist_sync.json"
+SYNC_SETTINGS_FILE = Path.home() / ".ascended_guardian" / "watchlist_sync.json"
 
 
 @dataclass

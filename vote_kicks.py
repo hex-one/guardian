@@ -22,7 +22,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
-VOTE_KICKS_FILE = Path.home() / ".ascended_quickmod" / "vote_kicks.json"
+VOTE_KICKS_FILE = Path.home() / ".ascended_guardian" / "vote_kicks.json"
 
 # How long after an "initiated" event we'll still match a following
 # "succeeded" line back to it. VRChat's own kick-vote timer runs well

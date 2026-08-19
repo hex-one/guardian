@@ -296,7 +296,7 @@ class LogWatcher:
         self.last_line_read_at = datetime.now()
 
         # If the file already has content when we start (e.g. you launch
-        # QuickMOD after you're already in a world), jump to the end so we
+        # Guardian after you're already in a world), jump to the end so we
         # don't replay the whole session's history as "new" events.
         if path and os.path.exists(path):
             self._file_position = os.path.getsize(path)

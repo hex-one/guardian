@@ -7,7 +7,7 @@ work happening, step by step, rather than a blank window or a fake
 spinner), just built as native Qt widgets instead of HTML/CSS/JS,
 since Guardian has no web layer to put one in.
 
-Sits as a plain child widget of QuickModWindow's CENTRAL widget --
+Sits as a plain child widget of GuardianWindow's CENTRAL widget --
 covering the whole content area (status line, instance list, footer,
 everything below the menu bar), not the menu bar itself, which stays
 usable throughout. Sizing this to player_list's own geometry instead
@@ -37,7 +37,7 @@ BEGINNER NOTES:
   through the full RGB hue range while it's up, not a fixed color),
   holds it long enough to actually see a few hues go by, then hides
   the whole overlay. Nothing below re-shows it -- a fresh one only
-  exists because a fresh QuickModWindow got built (sign-out/sign-in,
+  exists because a fresh GuardianWindow got built (sign-out/sign-in,
   or a relaunch).
 --------------------------------------------------------------------------
 """

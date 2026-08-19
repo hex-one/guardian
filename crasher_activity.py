@@ -23,7 +23,7 @@ import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-CRASHER_ACTIVITY_FILE = Path.home() / ".ascended_quickmod" / "crasher_activity.json"
+CRASHER_ACTIVITY_FILE = Path.home() / ".ascended_guardian" / "crasher_activity.json"
 
 
 @dataclass

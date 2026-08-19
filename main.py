@@ -181,7 +181,7 @@ def _format_elapsed(delta: timedelta) -> str:
     return f"{minutes}m"
 
 
-class QuickModWindow(QMainWindow):
+class GuardianWindow(QMainWindow):
     # Qt signals are the supported way to hand data from a background
     # thread back to the GUI thread -- emitting from another thread
     # auto-queues the connected slot to run on this object's own
@@ -2280,16 +2280,38 @@ class QuickModWindow(QMainWindow):
             self.player_list.addItem(item)
 
 
+def _migrate_data_dir():
+    """
+    One-time move from ~/.ascended_quickmod (Guardian's original folder
+    name, back when the app was still called QuickMOD) to ~/.ascended_
+    guardian -- so finishing the rename to the app's real name doesn't
+    quietly orphan anyone's saved session, AAR log, watchlist, or any of
+    the rest. Safe to call every launch: a no-op the moment the new
+    folder exists, and if both somehow already exist, the old one is
+    just left alone rather than guessed about.
+    """
+    old_dir = Path.home() / ".ascended_quickmod"
+    new_dir = Path.home() / ".ascended_guardian"
+    if old_dir.exists() and not new_dir.exists():
+        try:
+            old_dir.rename(new_dir)
+        except OSError:
+            pass  # cross-device or a locked file -- worst case, a fresh start, nothing corrupts either way
+
+
 def main():
-    # Before anything else gets built, including the QApplication --
-    # if style.qss or the logo files are missing, fetch them now so
+    # Before anything else, including the QApplication -- carry forward
+    # anyone's existing local data from the app's old folder name.
+    _migrate_data_dir()
+
+    # If style.qss or the logo files are missing, fetch them now so
     # THIS launch gets to use them, not just the next one.
     app_updater.self_heal_content(app_updater.get_app_dir(), log=print)
 
     app = QApplication(sys.argv)
 
     # App-wide icon -- covers the taskbar and any window that doesn't set
-    # its own icon explicitly. Also set explicitly on QuickModWindow below
+    # its own icon explicitly. Also set explicitly on GuardianWindow below
     # for the title bar, since not all platforms/themes reliably fall back
     # to the QApplication-level icon for that.
     logo_path = Path(__file__).parent / "ascended_logo.png"
@@ -2320,7 +2342,7 @@ def main():
             if login.exec() != QDialog.Accepted:
                 return  # user closed the login window without logging in
 
-        window = QuickModWindow(vrchat_client=login.client)
+        window = GuardianWindow(vrchat_client=login.client)
         window.show()
         app.exec()  # blocks until the window closes (Sign Out or the X button)
 

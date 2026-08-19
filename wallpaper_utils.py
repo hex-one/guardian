@@ -50,7 +50,7 @@ from PySide6.QtWidgets import QGraphicsScene, QGraphicsPixmapItem, QGraphicsBlur
 # can be referenced by path from a QSS background-image -- see
 # save_wallpaper_cache() below for why this exists instead of just handing
 # main.py the in-memory QPixmap.
-WALLPAPER_CACHE_FILE = Path.home() / ".ascended_quickmod" / "wallpaper_cache.png"
+WALLPAPER_CACHE_FILE = Path.home() / ".ascended_guardian" / "wallpaper_cache.png"
 
 # (value, label) pairs, in the order Config's dropdown shows them.
 WALLPAPER_MODES = [

@@ -2,7 +2,7 @@
 aar.py
 
 AAR = "After Action Report" -- a local log of every moderation action
-QuickMOD takes (starting with notes; kick/ban/mute will log here too once
+Guardian takes (starting with notes; kick/ban/mute will log here too once
 they're wired up). This is separate from VRChat's own note history: it's
 YOUR team's local record, in a format built to be pulled later and posted
 to your moderation Discord channel. A campaign log nobody else can edit
@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-AAR_FILE = Path.home() / ".ascended_quickmod" / "aar_log.json"
+AAR_FILE = Path.home() / ".ascended_guardian" / "aar_log.json"
 
 # What "Show Bans"/"Show Kicks"/"Show Notes" in the Reports menu each
 # filter down to -- Bans includes "unban" alongside "ban", since both
@@ -137,7 +137,7 @@ def export_markdown(entries: Optional[list[AAREntry]] = None) -> str:
     if not entries:
         return "*No moderation actions logged yet.*"
 
-    lines = ["# Guardian APP — After Action Report", ""]
+    lines = ["# Ascended Guardian — After Action Report", ""]
     for e in entries:
         status = "✅" if e.success else "❌"
         lines.append(f"**{e.timestamp}** — {status} `{e.action.upper()}` by **{e.moderator}**")

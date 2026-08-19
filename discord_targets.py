@@ -28,7 +28,7 @@ import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-DISCORD_TARGETS_FILE = Path.home() / ".ascended_quickmod" / "discord_targets.json"
+DISCORD_TARGETS_FILE = Path.home() / ".ascended_guardian" / "discord_targets.json"
 
 
 @dataclass

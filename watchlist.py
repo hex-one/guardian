@@ -15,7 +15,7 @@ import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-WATCHLIST_FILE = Path.home() / ".ascended_quickmod" / "watchlist.json"
+WATCHLIST_FILE = Path.home() / ".ascended_guardian" / "watchlist.json"
 
 
 @dataclass

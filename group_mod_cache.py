@@ -66,7 +66,7 @@ from typing import Callable, Optional
 
 import permission_check
 
-CACHE_FILE = Path.home() / ".ascended_quickmod" / "group_mod_cache.json"
+CACHE_FILE = Path.home() / ".ascended_guardian" / "group_mod_cache.json"
 
 MAX_CONCURRENT_CHECKS = 10    # bounded, not "all N groups at once" -- see module docstring
 MAX_RETRIES = 3

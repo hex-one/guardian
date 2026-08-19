@@ -15,7 +15,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
 
-APPEARANCE_FILE = Path.home() / ".ascended_quickmod" / "appearance.json"
+APPEARANCE_FILE = Path.home() / ".ascended_guardian" / "appearance.json"
 
 
 @dataclass

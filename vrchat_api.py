@@ -2,7 +2,7 @@
 vrchat_api.py
 
 Handles logging into VRChat's (unofficial but well-documented) web API and
-keeping the resulting session so QuickMOD can make moderation calls later
+keeping the resulting session so Guardian can make moderation calls later
 (notes, kick, ban, mute) without needing you to log in every single time.
 Trust, once earned, still has to be handled carefully -- that's the
 whole design of this file.
@@ -53,14 +53,16 @@ API_BASE = "https://api.vrchat.cloud/api/1"
 # NO "contact:" label, just those two pieces separated by a space.
 # If the app is renamed again or the version bumps, update this line --
 # it's the only place this needs to change.
-USER_AGENT = "Guardian/0.1 nullobserver@hexvr.net"
+USER_AGENT = "Guardian/0.3.0 nullobserver@hexvr.net"
 
 # Where we save session cookies so you're not re-logging-in every launch,
 # and where we remember your username (NOT your password -- see
 # remember_username() below) if you check "Remember me" on login.
-# Kept under the original folder name so anyone upgrading from earlier
-# QuickMOD builds doesn't lose their saved session/notes history.
-APP_DATA_DIR = Path.home() / ".ascended_quickmod"
+# Named for the app's actual name now (Guardian, not the original
+# QuickMOD) -- main.py's _migrate_data_dir() carries anyone's existing
+# session/notes history over from the old folder name on first launch,
+# so this rename doesn't quietly orphan it.
+APP_DATA_DIR = Path.home() / ".ascended_guardian"
 SESSION_FILE = APP_DATA_DIR / "session.json"
 PREFS_FILE = APP_DATA_DIR / "prefs.json"
 

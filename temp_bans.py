@@ -29,7 +29,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-TEMP_BAN_FILE = Path.home() / ".ascended_quickmod" / "temp_bans.json"
+TEMP_BAN_FILE = Path.home() / ".ascended_guardian" / "temp_bans.json"
 
 
 @dataclass
