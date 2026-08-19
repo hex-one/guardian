@@ -383,7 +383,7 @@ class GuardianWindow(QMainWindow):
         # back in and retarget that text later.
         self.requests_action = menu_bar.addAction("Requests", self._show_invites)
         self.bans_action = menu_bar.addAction("Bans", self._show_unbans)
-        menu_bar.addAction("Watchlist", self._show_watchlist)
+        self.watchlist_action = menu_bar.addAction("Watchlist", self._show_watchlist)
         self._update_menu_bar_counts()
 
         self.reports_menu = menu_bar.addMenu("Reports")
@@ -1087,6 +1087,15 @@ class GuardianWindow(QMainWindow):
         if hasattr(self, "requests_action"):
             count_text = str(self._pending_requests_count) if self._pending_requests_count is not None else "…"
             self.requests_action.setText(f"Requests ({count_text})")
+        if hasattr(self, "watchlist_action"):
+            # Unlike Bans/Requests above, this is deliberately an UNREAD
+            # badge, not a live state count -- how many VoteKick events
+            # haven't been looked at yet (see vote_kicks.get_unseen_count),
+            # not "how many exist total." Plain "Watchlist" with nothing
+            # new to report, same as an empty notification inbox doesn't
+            # show "(0)" either.
+            unseen = vote_kicks.get_unseen_count()
+            self.watchlist_action.setText(f"Watchlist ({unseen})" if unseen else "Watchlist")
 
     def _set_update_perms_busy(self, busy: bool):
         if not hasattr(self, "update_perms_action"):
@@ -1125,7 +1134,15 @@ class GuardianWindow(QMainWindow):
         self._reschedule_next_temp_ban_check()  # in case an early unban changed who's soonest
 
     def _show_watchlist(self):
-        dialog = WatchlistDialog(self.vrchat_client)
+        # Captured BEFORE marking seen, so the VoteKicks tab still shows
+        # "here's what just came in" even though the menu badge clears
+        # the instant the window opens -- same as opening a notification
+        # panel shows you what triggered it, then marks it read.
+        votekick_unseen_count = vote_kicks.get_unseen_count()
+        vote_kicks.mark_seen_now()
+        self._update_menu_bar_counts()
+
+        dialog = WatchlistDialog(self.vrchat_client, votekick_unseen_count=votekick_unseen_count)
         dialog.exec()
         self._refresh_list()  # in case additions/removals affect who's highlighted right now
 
@@ -2182,6 +2199,12 @@ class GuardianWindow(QMainWindow):
         threading.Thread(
             target=vote_kick_submit.submit_vote_kick_event, args=(self.vrchat_client, vk_event), daemon=True,
         ).start()
+
+        # Updates the Watchlist menu's "(##)" badge the instant this
+        # lands -- both record_initiated and record_succeeded count as
+        # fresh notifications (see vote_kicks.get_unseen_count), so this
+        # covers both branches above rather than duplicating the call.
+        self._update_menu_bar_counts()
 
     def _refresh_list(self):
         self.player_list.clear()

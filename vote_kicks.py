@@ -24,6 +24,13 @@ from pathlib import Path
 
 VOTE_KICKS_FILE = Path.home() / ".ascended_guardian" / "vote_kicks.json"
 
+# Separate from the events themselves on purpose -- this is just "when
+# did a mod last actually look," not part of the record of what
+# happened. Backs the Watchlist menu's unread-style "(##)" badge (see
+# main.py's _update_menu_bar_counts) and the matching count on the
+# VoteKicks tab label.
+VOTE_KICKS_SEEN_FILE = Path.home() / ".ascended_guardian" / "vote_kicks_seen.json"
+
 # How long after an "initiated" event we'll still match a following
 # "succeeded" line back to it. VRChat's own kick-vote timer runs well
 # under this in practice -- generous on purpose so a laggy log flush
@@ -160,3 +167,36 @@ def get_targets_with_events() -> tuple:
     user_ids = {e.target_user_id for e in events if e.target_user_id}
     unresolved_names = {e.target_display_name for e in events if not e.target_user_id}
     return user_ids, unresolved_names
+
+
+def _event_activity_at(event: VoteKickEvent) -> str:
+    """The most recent thing that actually happened to this event --
+    succeeded_at once it exists, initiated_at otherwise. Comparing
+    THIS against the last-seen marker (not just initiated_at) is what
+    makes a vote's outcome land as a fresh notification even if its
+    initiation was already seen and cleared -- the same event earns a
+    second notification when there's genuinely new information."""
+    return event.succeeded_at or event.initiated_at
+
+
+def get_last_seen_at() -> str:
+    """"" (sorts before every real timestamp) if a mod has never opened
+    the Watchlist window this install has ever recorded a vote-kick --
+    everything on record counts as unseen the first time, same as any
+    notification inbox would treat its very first look."""
+    if not VOTE_KICKS_SEEN_FILE.exists():
+        return ""
+    try:
+        return json.loads(VOTE_KICKS_SEEN_FILE.read_text()).get("last_seen_at", "")
+    except (ValueError, OSError):
+        return ""
+
+
+def mark_seen_now():
+    VOTE_KICKS_SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    VOTE_KICKS_SEEN_FILE.write_text(json.dumps({"last_seen_at": datetime.now().isoformat()}))
+
+
+def get_unseen_count() -> int:
+    last_seen_at = get_last_seen_at()
+    return sum(1 for e in load_events() if _event_activity_at(e) > last_seen_at)

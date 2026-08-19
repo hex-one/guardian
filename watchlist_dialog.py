@@ -54,7 +54,7 @@ from glow import apply_glow, PRIMARY, DANGER, SUCCESS, WARNING, INFO, DISCORD
 
 
 class WatchlistDialog(QDialog):
-    def __init__(self, vrchat_client=None):
+    def __init__(self, vrchat_client=None, votekick_unseen_count: int = 0):
         super().__init__()
         self.setObjectName("WatchlistDialog")
         self.setWindowTitle("Watchlist")
@@ -64,6 +64,13 @@ class WatchlistDialog(QDialog):
         # dialog can still be constructed/tested without a live session;
         # main.py always passes the real client.
         self.vrchat_client = vrchat_client
+
+        # Captured by main.py BEFORE it marks everything seen, so the
+        # VoteKicks tab still shows "here's what just came in" even
+        # though the menu bar's own badge has already cleared by the
+        # time this window opens. Just a snapshot for the tab label --
+        # not re-read live, since "seen" is already settled by now.
+        self._votekick_unseen_count = votekick_unseen_count
 
         self._build_ui()
         self._reload()
@@ -87,7 +94,10 @@ class WatchlistDialog(QDialog):
         tabs.setTabToolTip(watchlist_tab_index, "Players flagged for extra attention")
 
         votekicks_page = QWidget()
-        votekicks_tab_index = tabs.addTab(votekicks_page, "VoteKicks")
+        votekicks_tab_label = (
+            f"VoteKicks ({self._votekick_unseen_count})" if self._votekick_unseen_count else "VoteKicks"
+        )
+        votekicks_tab_index = tabs.addTab(votekicks_page, votekicks_tab_label)
         tabs.setTabToolTip(votekicks_tab_index, "Vote-kick events Guardian has observed in the log")
         self._build_vote_kicks_tab(votekicks_page)
 
