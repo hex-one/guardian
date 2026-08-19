@@ -596,7 +596,7 @@ This ships as a folder (`onedir`), not a single self-extracting exe
 ### Windows Defender / antivirus flagging
 
 Same honest picture as our sibling project, [Ascended
-STT](https://github.com/hex-vr/Ascended-STT) — a genuinely common
+STT](https://github.com/hex-one/Ascended-STT) — a genuinely common
 issue for unsigned PyInstaller executables generally, not something
 specific to Guardian having done anything wrong. I'd rather tell you
 straight than let you find out from a scary popup. Worth understanding
