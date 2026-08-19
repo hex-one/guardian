@@ -33,7 +33,7 @@ import requests
 
 # Bump this by hand alongside every GitHub Release tag (vX.Y.Z) -- the
 # only thing the app-update check compares against.
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
 
 CONTENT_REPO = "hex-one/guardian"
 CONTENT_BRANCH = "main"
