@@ -53,7 +53,7 @@ API_BASE = "https://api.vrchat.cloud/api/1"
 # NO "contact:" label, just those two pieces separated by a space.
 # If the app is renamed again or the version bumps, update this line --
 # it's the only place this needs to change.
-USER_AGENT = "Guardian/0.3.0 nullobserver@hexvr.net"
+USER_AGENT = "Guardian/0.3.1 nullobserver@hexvr.net"
 
 # Where we save session cookies so you're not re-logging-in every launch,
 # and where we remember your username (NOT your password -- see
