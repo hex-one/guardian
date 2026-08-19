@@ -119,6 +119,7 @@ TEMP_BAN_CHECK_INTERVAL_MS = 300_000   # 5 minutes -- safety-net poll; see _resc
 TEMP_BAN_CHECK_BUFFER_SECONDS = 120    # how long AFTER an expiry the precise check actually fires -- cushion against clock/scheduling slop landing a hair early and finding "not due yet"
 DEPARTED_RETENTION_HOURS = 6          # how long a departed player stays in the list before being pruned
 DEPARTED_PRUNE_INTERVAL_MS = 300_000  # 5 minutes -- doesn't need to be exact to the second
+PENDING_REQUESTS_REFRESH_INTERVAL_MS = 120_000  # 2 minutes -- cheap enough (a handful of list-requests calls, no full permission re-scan) to check this often
 
 # How close an avatar-change has to be, timing-wise, to a Udon exception
 # to count as a plausible cause -- a heuristic, not a proven threshold.
@@ -190,6 +191,12 @@ class GuardianWindow(QMainWindow):
     # join-request count computed in the same background pass -- see
     # _update_menu_bar_counts.
     group_mod_cache_updated = Signal(list, int)
+
+    # Carries just the refreshed count from _refresh_pending_requests_
+    # count's background thread back to the GUI thread -- the lighter,
+    # more frequent sibling of group_mod_cache_updated above (see that
+    # method for why this doesn't just reuse the full-scan signal).
+    pending_requests_updated = Signal(int)
 
     def __init__(self, vrchat_client):
         super().__init__()
@@ -295,6 +302,7 @@ class GuardianWindow(QMainWindow):
 
         self._group_mod_cache: list = group_mod_cache.load_cached()
         self.group_mod_cache_updated.connect(self._on_group_mod_cache_updated)
+        self.pending_requests_updated.connect(self._on_pending_requests_refreshed)
 
         # Total pending join requests across every group can_review_join_
         # requests covers, for the "Requests (##)" menu label -- None
@@ -349,6 +357,7 @@ class GuardianWindow(QMainWindow):
 
         self._start_update_checker()
         self._start_group_mod_cache_refresh()
+        self._start_pending_requests_refresh_timer()
 
     # -- UI setup ----------------------------------------------------------
 
@@ -1013,6 +1022,53 @@ class GuardianWindow(QMainWindow):
         self._stop_perm_blink()
         self._update_menu_bar_counts()
 
+    def _start_pending_requests_refresh_timer(self):
+        """
+        The Requests (##) count used to only ever change at startup or
+        on a manual Update Perms click -- a new join request showing up
+        mid-session just sat invisible until one of those happened. This
+        is the fix: a periodic, MUCH cheaper re-poll than the full
+        group_mod_cache scan (see _refresh_pending_requests_count below
+        for why it can afford to run every couple minutes instead).
+        """
+        self.pending_requests_timer = QTimer(self)
+        self.pending_requests_timer.timeout.connect(self._refresh_pending_requests_count)
+        self.pending_requests_timer.start(PENDING_REQUESTS_REFRESH_INTERVAL_MS)
+
+    def _refresh_pending_requests_count(self):
+        """
+        Lighter periodic sibling of _start_group_mod_cache_refresh --
+        re-polls join requests for whichever groups the last FULL scan
+        already found reviewable, without re-running that scan's much
+        larger per-group permission check just to keep this one number
+        honest. Skips a tick entirely if a full scan is already in
+        flight (Update Perms, or the startup scan still finishing) so
+        the two never race to write the same count.
+        """
+        if self._group_mod_cache_scanning:
+            return
+        entries = self._group_mod_cache
+
+        def worker():
+            pending_requests_count = 0
+            for entry in entries:
+                if not entry.can_review_join_requests:
+                    continue
+                result = self.vrchat_client.get_group_join_requests(entry.group_id)
+                if result.status == "success":
+                    pending_requests_count += len(result.requests)
+
+            try:
+                self.pending_requests_updated.emit(pending_requests_count)
+            except RuntimeError:
+                pass  # window's already gone -- nothing left to update
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_pending_requests_refreshed(self, pending_requests_count):
+        self._pending_requests_count = pending_requests_count
+        self._update_menu_bar_counts()
+
     def _update_menu_bar_counts(self):
         """Bans reads straight from the local temp-ban tracker
         (temp_bans.py) -- no network call, no waiting, true the instant
@@ -1221,6 +1277,8 @@ class GuardianWindow(QMainWindow):
             self.watchlist_blink_timer.stop()
         if hasattr(self, "watchlist_sync_timer"):
             self.watchlist_sync_timer.stop()
+        if hasattr(self, "pending_requests_timer"):
+            self.pending_requests_timer.stop()
         if hasattr(self, "_perm_blink_timer"):
             self._perm_blink_timer.stop()
         if hasattr(self, "_wallpaper_resize_timer"):
